@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model League {
+  id          Int       @id
+  name        String
+  country     String?
+  logo         String?
+  isSelected  Boolean   @default(false)
+  fixtures    Fixture[]
+  updatedAt   DateTime  @updatedAt
+}
+
+model Team {
+  id          Int       @id
+  name        String
+  logo         String?
+  isSelected  Boolean   @default(false)
+  homeFixtures Fixture[] @relation("HomeTeam")
+  awayFixtures Fixture[] @relation("AwayTeam")
+  updatedAt   DateTime  @updatedAt
+}
+
+model Fixture {
+  id          Int      @id
+  startsAt    DateTime
+  status      String
+  venue       String?
+  leagueId    Int
+  homeTeamId  Int
+  awayTeamId  Int
+  updatedAt   DateTime @updatedAt
+  league      League   @relation(fields: [leagueId], references: [id])
+  homeTeam    Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  @@index([startsAt])
+  @@index([leagueId, startsAt])
+  @@index([homeTeamId, startsAt])
+  @@index([awayTeamId, startsAt])
+}
+
+model SyncRun {
+  id          Int      @id @default(autoincrement())
+  source      String   @unique
+  completedAt DateTime
+  fixtureCount Int
+}
