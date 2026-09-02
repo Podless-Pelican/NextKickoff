@@ -48,12 +48,24 @@ export async function GET(request: NextRequest) {
     "x-rapidapi-key": rapidApiKey,
     "x-rapidapi-host": process.env.RAPIDAPI_HOST ?? "api-football-v1.p.rapidapi.com",
   };
-  const responses = await Promise.all(COMPETITIONS.map((competition) => {
+  const responses: Response[] = [];
+  for (const competition of COMPETITIONS) {
     const query = new URLSearchParams({ league: String(competition.id), season, from: dateString(from), to: dateString(to), timezone: "UTC" });
-    return fetch(`${API_URL}/fixtures?${query}`, { headers, cache: "no-store" });
-  }));
-  const failed = responses.find((response) => !response.ok);
-  if (failed) return NextResponse.json({ error: "RapidAPI API-Football request failed", status: failed.status }, { status: 502 });
+    const response = await fetch(`${API_URL}/fixtures?${query}`, { headers, cache: "no-store" });
+    if (!response.ok) {
+      return NextResponse.json(
+        {
+          error: "RapidAPI API-Football request failed",
+          competition: competition.name,
+          status: response.status,
+          retryAfter: response.headers.get("retry-after"),
+          requestsRemaining: response.headers.get("x-ratelimit-requests-remaining"),
+        },
+        { status: response.status === 429 ? 429 : 502 },
+      );
+    }
+    responses.push(response);
+  }
 
   const payloads = await Promise.all(responses.map((response) => response.json() as Promise<ApiResponse>));
   const apiError = payloads.flatMap((payload) => Object.values(payload.errors ?? {}))[0];
