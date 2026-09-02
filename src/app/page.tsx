@@ -35,15 +35,24 @@ export default async function Home() {
   let databaseUnavailable = false;
 
   try {
+    const [selectedLeagues, selectedTeams] = await Promise.all([
+      prisma.league.findMany({ where: { isSelected: true }, select: { id: true } }),
+      prisma.team.findMany({ where: { isSelected: true }, select: { id: true } }),
+    ]);
+    const selectedLeagueIds = selectedLeagues.map((league) => league.id);
+    const selectedTeamIds = selectedTeams.map((team) => team.id);
+    const fixtureFilters = [
+      ...(selectedLeagueIds.length ? [{ leagueId: { in: selectedLeagueIds } }] : []),
+      ...(selectedTeamIds.length
+        ? [{ OR: [{ homeTeamId: { in: selectedTeamIds } }, { awayTeamId: { in: selectedTeamIds } }] }]
+        : []),
+    ];
+
     [fixtures, leagues, teams, lastSync] = await Promise.all([
       prisma.fixture.findMany({
         where: {
           startsAt: { gte: now },
-          OR: [
-            { league: { isSelected: true } },
-            { homeTeam: { isSelected: true } },
-            { awayTeam: { isSelected: true } },
-          ],
+          AND: fixtureFilters,
         },
         include: { league: true, homeTeam: true, awayTeam: true },
         orderBy: { startsAt: "asc" },
