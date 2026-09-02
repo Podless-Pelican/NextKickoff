@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     timezone: "UTC",
   });
 
-  const [fixturesResponse, teamsResponse] = await Promise.all([
+  const [fixturesResponse, currentTeamsResponse] = await Promise.all([
     fetch(`${API_URL}/fixtures?${fixtureQuery}`, { headers, cache: "no-store" }),
     fetch(
       `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season })}`,
@@ -89,21 +89,40 @@ export async function GET(request: NextRequest) {
     ),
   ]);
 
-  if (!fixturesResponse.ok || !teamsResponse.ok) {
+  if (!fixturesResponse.ok || !currentTeamsResponse.ok) {
     return NextResponse.json(
       {
         error: "API-Football request failed",
         fixtureStatus: fixturesResponse.status,
-        teamStatus: teamsResponse.status,
+        teamStatus: currentTeamsResponse.status,
       },
       { status: 502 },
     );
   }
 
-  const [payload, teamsPayload] = await Promise.all([
+  const [payload, currentTeamsPayload] = await Promise.all([
     fixturesResponse.json() as Promise<ApiResponse>,
-    teamsResponse.json() as Promise<ApiTeamResponse>,
+    currentTeamsResponse.json() as Promise<ApiTeamResponse>,
   ]);
+  let teamsPayload = currentTeamsPayload;
+  let teamsSeason = season;
+
+  if (teamsPayload.response.length === 0 && !process.env.EREDIVISIE_SEASON) {
+    const fallbackSeason = String(Number(season) - 1);
+    const fallbackResponse = await fetch(
+      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season: fallbackSeason })}`,
+      { headers, cache: "no-store" },
+    );
+
+    if (fallbackResponse.ok) {
+      const fallbackPayload = (await fallbackResponse.json()) as ApiTeamResponse;
+      if (fallbackPayload.response.length > 0) {
+        teamsPayload = fallbackPayload;
+        teamsSeason = fallbackSeason;
+      }
+    }
+  }
+
   await prisma.$transaction([
     ...payload.response.map((item) =>
       prisma.league.upsert({
@@ -159,6 +178,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     synced: payload.response.length,
     teamsSynced: teamsPayload.response.length,
+    teamsSeason,
     league: "Eredivisie",
     season,
     apiErrors: {
