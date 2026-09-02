@@ -35,10 +35,14 @@ export default async function Home() {
   let databaseUnavailable = false;
 
   try {
-    const [selectedLeagues, selectedTeams] = await Promise.all([
-      prisma.league.findMany({ where: { isSelected: true }, select: { id: true } }),
-      prisma.team.findMany({ where: { isSelected: true }, select: { id: true } }),
-    ]);
+    const selectedLeagues = await prisma.league.findMany({
+      where: { isSelected: true },
+      select: { id: true },
+    });
+    const selectedTeams = await prisma.team.findMany({
+      where: { isSelected: true },
+      select: { id: true },
+    });
     const selectedLeagueIds = selectedLeagues.map((league) => league.id);
     const selectedTeamIds = selectedTeams.map((team) => team.id);
     const fixtureFilters = [
@@ -48,20 +52,15 @@ export default async function Home() {
         : []),
     ];
 
-    [fixtures, leagues, teams, lastSync] = await Promise.all([
-      prisma.fixture.findMany({
-        where: {
-          startsAt: { gte: now },
-          AND: fixtureFilters,
-        },
-        include: { league: true, homeTeam: true, awayTeam: true },
-        orderBy: { startsAt: "asc" },
-        take: 50,
-      }),
-      prisma.league.findMany({ orderBy: { name: "asc" }, take: 24 }),
-      prisma.team.findMany({ orderBy: { name: "asc" }, take: 36 }),
-      prisma.syncRun.findUnique({ where: { source: "football-data.org:uefa" } }),
-    ]);
+    fixtures = await prisma.fixture.findMany({
+      where: { startsAt: { gte: now }, AND: fixtureFilters },
+      include: { league: true, homeTeam: true, awayTeam: true },
+      orderBy: { startsAt: "asc" },
+      take: 50,
+    });
+    leagues = await prisma.league.findMany({ orderBy: { name: "asc" }, take: 24 });
+    teams = await prisma.team.findMany({ orderBy: { name: "asc" }, take: 36 });
+    lastSync = await prisma.syncRun.findUnique({ where: { source: "football-data.org:uefa" } });
   } catch (error) {
     console.error("Unable to load Next Kickoff data", error);
     databaseUnavailable = true;
