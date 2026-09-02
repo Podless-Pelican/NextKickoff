@@ -51,7 +51,7 @@ export default async function Home() {
       }),
       prisma.league.findMany({ orderBy: { name: "asc" }, take: 24 }),
       prisma.team.findMany({ orderBy: { name: "asc" }, take: 36 }),
-      prisma.syncRun.findUnique({ where: { source: "api-football" } }),
+      prisma.syncRun.findUnique({ where: { source: "football-data.org:uefa" } }),
     ]);
   } catch (error) {
     console.error("Unable to load Next Kickoff data", error);
