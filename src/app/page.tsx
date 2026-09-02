@@ -60,7 +60,7 @@ export default async function Home() {
     });
     leagues = await prisma.league.findMany({ orderBy: { name: "asc" }, take: 24 });
     teams = await prisma.team.findMany({ orderBy: { name: "asc" }, take: 36 });
-    lastSync = await prisma.syncRun.findUnique({ where: { source: "football-data.org:uefa" } });
+    lastSync = await prisma.syncRun.findUnique({ where: { source: "rapidapi:api-football" } });
   } catch (error) {
     console.error("Unable to load Next Kickoff data", error);
     databaseUnavailable = true;

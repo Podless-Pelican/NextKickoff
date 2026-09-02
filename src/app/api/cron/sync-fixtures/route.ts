@@ -4,19 +4,25 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const API_URL = "https://api.football-data.org/v4";
+const API_URL = "https://api-football-v1.p.rapidapi.com/v3";
 const COMPETITIONS = [
-  { code: "CL", id: 2001, name: "UEFA Champions League" },
-  { code: "DED", id: 2003, name: "Eredivisie" },
+  { id: 2, name: "UEFA Champions League" },
+  { id: 88, name: "Eredivisie" },
 ] as const;
 
-type Team = { id: number; name: string; crest: string | null };
-type Match = { id: number; utcDate: string; status: string; venue: string | null; competition: { id: number; name: string }; homeTeam: Team; awayTeam: Team };
-type TeamsResponse = { teams: Team[] };
-type MatchesResponse = { matches: Match[] };
+type ApiFixture = {
+  fixture: { id: number; date: string; status: { short: string }; venue: { name: string | null } };
+  league: { id: number; name: string; country: string | null; logo: string | null };
+  teams: {
+    home: { id: number; name: string; logo: string | null };
+    away: { id: number; name: string; logo: string | null };
+  };
+};
+type ApiResponse = { response: ApiFixture[]; errors?: Record<string, string> };
 
 function isAuthorized(request: NextRequest) {
-  return process.env.CRON_SECRET && request.headers.get("authorization") === `Bearer ${process.env.CRON_SECRET}`;
+  const secret = process.env.CRON_SECRET;
+  return secret && request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 function dateString(date: Date) {
@@ -26,58 +32,64 @@ function dateString(date: Date) {
 export async function GET(request: NextRequest) {
   if (!isAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const token = process.env.FOOTBALL_DATA_API_TOKEN;
-  if (!token) return NextResponse.json({ error: "FOOTBALL_DATA_API_TOKEN is not configured" }, { status: 500 });
+  const rapidApiKey = process.env.RAPIDAPI_KEY;
+  if (!rapidApiKey) return NextResponse.json({ error: "RAPIDAPI_KEY is not configured" }, { status: 500 });
 
   const lookaheadDays = Number(process.env.FIXTURE_LOOKAHEAD_DAYS ?? 30);
   if (!Number.isInteger(lookaheadDays) || lookaheadDays < 1 || lookaheadDays > 365) {
     return NextResponse.json({ error: "FIXTURE_LOOKAHEAD_DAYS must be an integer between 1 and 365" }, { status: 500 });
   }
 
+  const season = process.env.FOOTBALL_SEASON ?? String(new Date().getUTCFullYear());
   const from = new Date();
   const to = new Date(from);
   to.setUTCDate(to.getUTCDate() + lookaheadDays);
-  const headers = { "X-Auth-Token": token };
-  const matchQuery = new URLSearchParams({ dateFrom: dateString(from), dateTo: dateString(to) });
-  const responses = await Promise.all(COMPETITIONS.flatMap(({ code }) => [
-    fetch(`${API_URL}/competitions/${code}/teams`, { headers, cache: "no-store" }),
-    fetch(`${API_URL}/competitions/${code}/matches?${matchQuery}`, { headers, cache: "no-store" }),
-  ]));
+  const headers = {
+    "x-rapidapi-key": rapidApiKey,
+    "x-rapidapi-host": process.env.RAPIDAPI_HOST ?? "api-football-v1.p.rapidapi.com",
+  };
+  const responses = await Promise.all(COMPETITIONS.map((competition) => {
+    const query = new URLSearchParams({ league: String(competition.id), season, from: dateString(from), to: dateString(to), timezone: "UTC" });
+    return fetch(`${API_URL}/fixtures?${query}`, { headers, cache: "no-store" });
+  }));
   const failed = responses.find((response) => !response.ok);
-  if (failed) return NextResponse.json({ error: "football-data.org request failed", status: failed.status }, { status: 502 });
+  if (failed) return NextResponse.json({ error: "RapidAPI API-Football request failed", status: failed.status }, { status: 502 });
 
-  const results = await Promise.all(COMPETITIONS.map(async (competition, index) => ({
-    competition,
-    teams: ((await responses[index * 2].json()) as TeamsResponse).teams,
-    matches: ((await responses[index * 2 + 1].json()) as MatchesResponse).matches,
-  })));
-  const teams = new Map<number, Team>();
-  for (const result of results) {
-    for (const team of result.teams) teams.set(team.id, team);
-    for (const match of result.matches) {
-      teams.set(match.homeTeam.id, match.homeTeam);
-      teams.set(match.awayTeam.id, match.awayTeam);
-    }
+  const payloads = await Promise.all(responses.map((response) => response.json() as Promise<ApiResponse>));
+  const apiError = payloads.flatMap((payload) => Object.values(payload.errors ?? {}))[0];
+  if (apiError) return NextResponse.json({ error: "API-Football returned an error", detail: apiError }, { status: 502 });
+
+  const fixtures = payloads.flatMap((payload) => payload.response);
+  const teams = new Map<number, { id: number; name: string; logo: string | null }>();
+  for (const fixture of fixtures) {
+    teams.set(fixture.teams.home.id, fixture.teams.home);
+    teams.set(fixture.teams.away.id, fixture.teams.away);
   }
-  const matches = results.flatMap((result) => result.matches);
 
   await prisma.$transaction([
-    ...results.map(({ competition, matches: competitionMatches }) => {
-      const apiCompetition = competitionMatches[0]?.competition;
-      const id = apiCompetition?.id ?? competition.id;
-      const name = apiCompetition?.name ?? competition.name;
-      return prisma.league.upsert({ where: { id }, create: { id, name, country: "Europe" }, update: { name, country: "Europe" } });
-    }),
-    ...[...teams.values()].map((team) => prisma.team.upsert({ where: { id: team.id }, create: { id: team.id, name: team.name, logo: team.crest }, update: { name: team.name, logo: team.crest } })),
-  ]);
-  await prisma.$transaction([
-    ...matches.map((match) => prisma.fixture.upsert({
-      where: { id: match.id },
-      create: { id: match.id, startsAt: new Date(match.utcDate), status: match.status, venue: match.venue, leagueId: match.competition.id, homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id },
-      update: { startsAt: new Date(match.utcDate), status: match.status, venue: match.venue, leagueId: match.competition.id, homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id },
+    ...COMPETITIONS.map((competition) => prisma.league.upsert({
+      where: { id: competition.id },
+      create: { id: competition.id, name: competition.name, country: competition.id === 88 ? "Netherlands" : "Europe" },
+      update: { name: competition.name, country: competition.id === 88 ? "Netherlands" : "Europe" },
     })),
-    prisma.syncRun.upsert({ where: { source: "football-data.org:uefa" }, create: { source: "football-data.org:uefa", completedAt: new Date(), fixtureCount: matches.length }, update: { completedAt: new Date(), fixtureCount: matches.length } }),
+    ...[...teams.values()].map((team) => prisma.team.upsert({
+      where: { id: team.id },
+      create: team,
+      update: team,
+    })),
+  ]);
+  await prisma.$transaction([
+    ...fixtures.map((fixture) => prisma.fixture.upsert({
+      where: { id: fixture.fixture.id },
+      create: { id: fixture.fixture.id, startsAt: new Date(fixture.fixture.date), status: fixture.fixture.status.short, venue: fixture.fixture.venue.name, leagueId: fixture.league.id, homeTeamId: fixture.teams.home.id, awayTeamId: fixture.teams.away.id },
+      update: { startsAt: new Date(fixture.fixture.date), status: fixture.fixture.status.short, venue: fixture.fixture.venue.name, leagueId: fixture.league.id, homeTeamId: fixture.teams.home.id, awayTeamId: fixture.teams.away.id },
+    })),
+    prisma.syncRun.upsert({
+      where: { source: "rapidapi:api-football" },
+      create: { source: "rapidapi:api-football", completedAt: new Date(), fixtureCount: fixtures.length },
+      update: { completedAt: new Date(), fixtureCount: fixtures.length },
+    }),
   ]);
 
-  return NextResponse.json({ synced: matches.length, teamsSynced: teams.size, leaguesSynced: results.length, lookaheadDays, source: "football-data.org" });
+  return NextResponse.json({ synced: fixtures.length, teamsSynced: teams.size, leaguesSynced: COMPETITIONS.length, season, lookaheadDays, source: "RapidAPI API-Football" });
 }
