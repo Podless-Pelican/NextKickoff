@@ -7,8 +7,7 @@ export const maxDuration = 60;
 const API_URL = "https://api.football-data.org/v4";
 const COMPETITIONS = [
   { code: "CL", id: 2001, name: "UEFA Champions League" },
-  { code: "EL", id: 2146, name: "UEFA Europa League" },
-  { code: "ECL", id: 2154, name: "UEFA Conference League" },
+  { code: "DED", id: 2146, name: "Eredivisie" },
 ] as const;
 
 type Team = { id: number; name: string; crest: string | null };
