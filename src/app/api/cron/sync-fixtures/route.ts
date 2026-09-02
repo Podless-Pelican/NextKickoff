@@ -33,6 +33,12 @@ type ApiTeamResponse = {
   errors?: Record<string, string>;
 };
 
+type ApiLeagueResponse = {
+  response: Array<{
+    seasons: Array<{ year: number; current: boolean }>;
+  }>;
+};
+
 function isAuthorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   return secret && request.headers.get("authorization") === `Bearer ${secret}`;
@@ -48,7 +54,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "API_FOOTBALL_KEY is not configured" }, { status: 500 });
   }
 
-  const season = process.env.EREDIVISIE_SEASON ?? String(new Date().getUTCFullYear());
+  const headers = { "x-apisports-key": apiKey };
+  const leagueResponse = await fetch(`${API_URL}/leagues?id=${EREDIVISIE_LEAGUE_ID}`, {
+    headers,
+    cache: "no-store",
+  });
+
+  if (!leagueResponse.ok) {
+    return NextResponse.json(
+      { error: "API-Football league request failed", status: leagueResponse.status },
+      { status: 502 },
+    );
+  }
+
+  const leaguePayload = (await leagueResponse.json()) as ApiLeagueResponse;
+  const currentSeason = leaguePayload.response[0]?.seasons.find((item) => item.current)?.year;
+  const season = process.env.EREDIVISIE_SEASON ?? String(currentSeason ?? new Date().getUTCFullYear());
   const from = new Date();
   const to = new Date(from);
   to.setUTCDate(to.getUTCDate() + 7);
@@ -60,7 +81,6 @@ export async function GET(request: NextRequest) {
     timezone: "UTC",
   });
 
-  const headers = { "x-apisports-key": apiKey };
   const [fixturesResponse, teamsResponse] = await Promise.all([
     fetch(`${API_URL}/fixtures?${fixtureQuery}`, { headers, cache: "no-store" }),
     fetch(
