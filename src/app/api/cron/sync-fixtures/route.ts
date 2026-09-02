@@ -4,52 +4,30 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const API_URL = "https://v3.football.api-sports.io";
-const EREDIVISIE_LEAGUE_ID = "88";
+const API_URL = "https://api.football-data.org/v4";
+const EREDIVISIE_CODE = "DED";
+const EREDIVISIE_ID = 2003;
 
-type ApiFixture = {
-  fixture: {
-    id: number;
-    date: string;
-    status: { short: string };
-    venue: { name: string | null };
-  };
-  league: { id: number; name: string; country: string | null; logo: string | null };
-  teams: {
-    home: { id: number; name: string; logo: string | null };
-    away: { id: number; name: string; logo: string | null };
-  };
+type FootballDataTeam = { id: number; name: string; crest: string | null };
+type FootballDataTeamsResponse = { teams: FootballDataTeam[] };
+type FootballDataMatch = {
+  id: number;
+  utcDate: string;
+  status: string;
+  venue: string | null;
+  competition: { id: number; name: string; area: { name: string } | null };
+  homeTeam: FootballDataTeam;
+  awayTeam: FootballDataTeam;
 };
-
-type ApiResponse = {
-  response: ApiFixture[];
-  results?: number;
-  errors?: Record<string, string>;
-};
-
-type ApiTeamResponse = {
-  response: Array<{ team: { id: number; name: string; logo: string | null } }>;
-  results?: number;
-  errors?: Record<string, string>;
-};
-
-type ApiLeagueResponse = {
-  response: Array<{
-    seasons: Array<{ year: number; current: boolean }>;
-  }>;
-};
-
-type ApiStandingsResponse = {
-  response: Array<{
-    league: {
-      standings: Array<Array<{ team: { id: number; name: string; logo: string | null } }>>;
-    };
-  }>;
-};
+type FootballDataMatchesResponse = { matches: FootballDataMatch[] };
 
 function isAuthorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   return secret && request.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+function dateString(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
 export async function GET(request: NextRequest) {
@@ -57,159 +35,73 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apiKey = process.env.API_FOOTBALL_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "API_FOOTBALL_KEY is not configured" }, { status: 500 });
+  const token = process.env.FOOTBALL_DATA_API_TOKEN;
+  if (!token) {
+    return NextResponse.json({ error: "FOOTBALL_DATA_API_TOKEN is not configured" }, { status: 500 });
   }
 
-  const headers = { "x-apisports-key": apiKey };
-  const leagueResponse = await fetch(`${API_URL}/leagues?id=${EREDIVISIE_LEAGUE_ID}`, {
-    headers,
-    cache: "no-store",
-  });
-
-  if (!leagueResponse.ok) {
-    return NextResponse.json(
-      { error: "API-Football league request failed", status: leagueResponse.status },
-      { status: 502 },
-    );
-  }
-
-  const leaguePayload = (await leagueResponse.json()) as ApiLeagueResponse;
-  const currentSeason = leaguePayload.response[0]?.seasons.find((item) => item.current)?.year;
-  const season = process.env.EREDIVISIE_SEASON ?? String(currentSeason ?? new Date().getUTCFullYear());
   const from = new Date();
   const to = new Date(from);
   to.setUTCDate(to.getUTCDate() + 7);
-  const fixtureQuery = new URLSearchParams({
-    league: EREDIVISIE_LEAGUE_ID,
-    season,
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-    timezone: "UTC",
-  });
-
-  const [fixturesResponse, currentTeamsResponse] = await Promise.all([
-    fetch(`${API_URL}/fixtures?${fixtureQuery}`, { headers, cache: "no-store" }),
-    fetch(
-      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season })}`,
-      { headers, cache: "no-store" },
-    ),
+  const headers = { "X-Auth-Token": token };
+  const matchesQuery = new URLSearchParams({ dateFrom: dateString(from), dateTo: dateString(to) });
+  const [teamsResponse, matchesResponse] = await Promise.all([
+    fetch(`${API_URL}/competitions/${EREDIVISIE_CODE}/teams`, { headers, cache: "no-store" }),
+    fetch(`${API_URL}/competitions/${EREDIVISIE_CODE}/matches?${matchesQuery}`, {
+      headers,
+      cache: "no-store",
+    }),
   ]);
 
-  if (!fixturesResponse.ok || !currentTeamsResponse.ok) {
+  if (!teamsResponse.ok || !matchesResponse.ok) {
     return NextResponse.json(
-      {
-        error: "API-Football request failed",
-        fixtureStatus: fixturesResponse.status,
-        teamStatus: currentTeamsResponse.status,
-      },
+      { error: "football-data.org request failed", teamStatus: teamsResponse.status, matchStatus: matchesResponse.status },
       { status: 502 },
     );
   }
 
-  const [payload, currentTeamsPayload] = await Promise.all([
-    fixturesResponse.json() as Promise<ApiResponse>,
-    currentTeamsResponse.json() as Promise<ApiTeamResponse>,
+  const [teamsPayload, matchesPayload] = await Promise.all([
+    teamsResponse.json() as Promise<FootballDataTeamsResponse>,
+    matchesResponse.json() as Promise<FootballDataMatchesResponse>,
   ]);
-  let teamsPayload = currentTeamsPayload;
-  let teamsSeason = season;
-
-  if (teamsPayload.response.length === 0 && !process.env.EREDIVISIE_SEASON) {
-    const fallbackSeason = String(Number(season) - 1);
-    const fallbackResponse = await fetch(
-      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season: fallbackSeason })}`,
-      { headers, cache: "no-store" },
-    );
-
-    if (fallbackResponse.ok) {
-      const fallbackPayload = (await fallbackResponse.json()) as ApiTeamResponse;
-      if (fallbackPayload.response.length > 0) {
-        teamsPayload = fallbackPayload;
-        teamsSeason = fallbackSeason;
-      }
-    }
+  const teams = new Map<number, FootballDataTeam>();
+  for (const team of teamsPayload.teams) teams.set(team.id, team);
+  for (const match of matchesPayload.matches) {
+    teams.set(match.homeTeam.id, match.homeTeam);
+    teams.set(match.awayTeam.id, match.awayTeam);
   }
-
-  if (teamsPayload.response.length === 0) {
-    const standingsResponse = await fetch(
-      `${API_URL}/standings?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season })}`,
-      { headers, cache: "no-store" },
-    );
-
-    if (standingsResponse.ok) {
-      const standingsPayload = (await standingsResponse.json()) as ApiStandingsResponse;
-      const standingsTeams = standingsPayload.response[0]?.league.standings.flatMap((group) =>
-        group.map(({ team }) => ({ team })),
-      ) ?? [];
-
-      if (standingsTeams.length > 0) {
-        teamsPayload = { response: standingsTeams };
-      }
-    }
-  }
+  const competition = matchesPayload.matches[0]?.competition;
+  const leagueId = competition?.id ?? EREDIVISIE_ID;
 
   await prisma.$transaction([
-    ...payload.response.map((item) =>
-      prisma.league.upsert({
-        where: { id: item.league.id },
-        create: {
-          id: item.league.id,
-          name: item.league.name,
-          country: item.league.country,
-          logo: item.league.logo,
-        },
-        update: {
-          name: item.league.name,
-          country: item.league.country,
-          logo: item.league.logo,
-        },
+    prisma.league.upsert({
+      where: { id: leagueId },
+      create: { id: leagueId, name: competition?.name ?? "Eredivisie", country: competition?.area?.name ?? "Netherlands" },
+      update: { name: competition?.name ?? "Eredivisie", country: competition?.area?.name ?? "Netherlands" },
+    }),
+    ...[...teams.values()].map((team) =>
+      prisma.team.upsert({
+        where: { id: team.id },
+        create: { id: team.id, name: team.name, logo: team.crest },
+        update: { name: team.name, logo: team.crest },
       }),
     ),
-    ...teamsPayload.response.map(({ team }) =>
-      prisma.team.upsert({ where: { id: team.id }, create: team, update: team }),
-    ),
   ]);
 
   await prisma.$transaction([
-    ...payload.response.map((item) =>
+    ...matchesPayload.matches.map((match) =>
       prisma.fixture.upsert({
-        where: { id: item.fixture.id },
-        create: {
-          id: item.fixture.id,
-          startsAt: new Date(item.fixture.date),
-          status: item.fixture.status.short,
-          venue: item.fixture.venue.name,
-          leagueId: item.league.id,
-          homeTeamId: item.teams.home.id,
-          awayTeamId: item.teams.away.id,
-        },
-        update: {
-          startsAt: new Date(item.fixture.date),
-          status: item.fixture.status.short,
-          venue: item.fixture.venue.name,
-          leagueId: item.league.id,
-          homeTeamId: item.teams.home.id,
-          awayTeamId: item.teams.away.id,
-        },
+        where: { id: match.id },
+        create: { id: match.id, startsAt: new Date(match.utcDate), status: match.status, venue: match.venue, leagueId: match.competition.id, homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id },
+        update: { startsAt: new Date(match.utcDate), status: match.status, venue: match.venue, leagueId: match.competition.id, homeTeamId: match.homeTeam.id, awayTeamId: match.awayTeam.id },
       }),
     ),
     prisma.syncRun.upsert({
-      where: { source: "api-football" },
-      create: { source: "api-football", completedAt: new Date(), fixtureCount: payload.response.length },
-      update: { completedAt: new Date(), fixtureCount: payload.response.length },
+      where: { source: "football-data.org" },
+      create: { source: "football-data.org", completedAt: new Date(), fixtureCount: matchesPayload.matches.length },
+      update: { completedAt: new Date(), fixtureCount: matchesPayload.matches.length },
     }),
   ]);
 
-  return NextResponse.json({
-    synced: payload.response.length,
-    teamsSynced: teamsPayload.response.length,
-    teamsSeason,
-    league: "Eredivisie",
-    season,
-    apiErrors: {
-      fixtures: payload.errors ?? {},
-      teams: teamsPayload.errors ?? {},
-    },
-  });
+  return NextResponse.json({ synced: matchesPayload.matches.length, teamsSynced: teams.size, league: "Eredivisie", source: "football-data.org" });
 }
