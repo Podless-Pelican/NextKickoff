@@ -6,7 +6,6 @@ export const maxDuration = 60;
 
 const API_URL = "https://v3.football.api-sports.io";
 const EREDIVISIE_LEAGUE_ID = "88";
-const EREDIVISIE_SEASON = "2026";
 
 type ApiFixture = {
   fixture: {
@@ -22,10 +21,16 @@ type ApiFixture = {
   };
 };
 
-type ApiResponse = { response: ApiFixture[] };
+type ApiResponse = {
+  response: ApiFixture[];
+  results?: number;
+  errors?: Record<string, string>;
+};
 
 type ApiTeamResponse = {
   response: Array<{ team: { id: number; name: string; logo: string | null } }>;
+  results?: number;
+  errors?: Record<string, string>;
 };
 
 function isAuthorized(request: NextRequest) {
@@ -43,12 +48,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "API_FOOTBALL_KEY is not configured" }, { status: 500 });
   }
 
+  const season = process.env.EREDIVISIE_SEASON ?? String(new Date().getUTCFullYear());
   const from = new Date();
   const to = new Date(from);
   to.setUTCDate(to.getUTCDate() + 7);
   const fixtureQuery = new URLSearchParams({
     league: EREDIVISIE_LEAGUE_ID,
-    season: EREDIVISIE_SEASON,
+    season,
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
     timezone: "UTC",
@@ -58,7 +64,7 @@ export async function GET(request: NextRequest) {
   const [fixturesResponse, teamsResponse] = await Promise.all([
     fetch(`${API_URL}/fixtures?${fixtureQuery}`, { headers, cache: "no-store" }),
     fetch(
-      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season: EREDIVISIE_SEASON })}`,
+      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season })}`,
       { headers, cache: "no-store" },
     ),
   ]);
@@ -134,6 +140,10 @@ export async function GET(request: NextRequest) {
     synced: payload.response.length,
     teamsSynced: teamsPayload.response.length,
     league: "Eredivisie",
-    season: EREDIVISIE_SEASON,
+    season,
+    apiErrors: {
+      fixtures: payload.errors ?? {},
+      teams: teamsPayload.errors ?? {},
+    },
   });
 }
