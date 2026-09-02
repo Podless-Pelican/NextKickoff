@@ -39,6 +39,14 @@ type ApiLeagueResponse = {
   }>;
 };
 
+type ApiStandingsResponse = {
+  response: Array<{
+    league: {
+      standings: Array<Array<{ team: { id: number; name: string; logo: string | null } }>>;
+    };
+  }>;
+};
+
 function isAuthorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   return secret && request.headers.get("authorization") === `Bearer ${secret}`;
@@ -119,6 +127,24 @@ export async function GET(request: NextRequest) {
       if (fallbackPayload.response.length > 0) {
         teamsPayload = fallbackPayload;
         teamsSeason = fallbackSeason;
+      }
+    }
+  }
+
+  if (teamsPayload.response.length === 0) {
+    const standingsResponse = await fetch(
+      `${API_URL}/standings?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season })}`,
+      { headers, cache: "no-store" },
+    );
+
+    if (standingsResponse.ok) {
+      const standingsPayload = (await standingsResponse.json()) as ApiStandingsResponse;
+      const standingsTeams = standingsPayload.response[0]?.league.standings.flatMap((group) =>
+        group.map(({ team }) => ({ team })),
+      ) ?? [];
+
+      if (standingsTeams.length > 0) {
+        teamsPayload = { response: standingsTeams };
       }
     }
   }
