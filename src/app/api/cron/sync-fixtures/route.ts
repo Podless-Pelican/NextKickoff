@@ -7,7 +7,7 @@ export const maxDuration = 60;
 const API_URL = "https://api.football-data.org/v4";
 const COMPETITIONS = [
   { code: "CL", id: 2001, name: "UEFA Champions League" },
-  { code: "DED", id: 2146, name: "Eredivisie" },
+  { code: "DED", id: 2003, name: "Eredivisie" },
 ] as const;
 
 type Team = { id: number; name: string; crest: string | null };
@@ -29,9 +29,14 @@ export async function GET(request: NextRequest) {
   const token = process.env.FOOTBALL_DATA_API_TOKEN;
   if (!token) return NextResponse.json({ error: "FOOTBALL_DATA_API_TOKEN is not configured" }, { status: 500 });
 
+  const lookaheadDays = Number(process.env.FIXTURE_LOOKAHEAD_DAYS ?? 30);
+  if (!Number.isInteger(lookaheadDays) || lookaheadDays < 1 || lookaheadDays > 365) {
+    return NextResponse.json({ error: "FIXTURE_LOOKAHEAD_DAYS must be an integer between 1 and 365" }, { status: 500 });
+  }
+
   const from = new Date();
   const to = new Date(from);
-  to.setUTCDate(to.getUTCDate() + 7);
+  to.setUTCDate(to.getUTCDate() + lookaheadDays);
   const headers = { "X-Auth-Token": token };
   const matchQuery = new URLSearchParams({ dateFrom: dateString(from), dateTo: dateString(to) });
   const responses = await Promise.all(COMPETITIONS.flatMap(({ code }) => [
@@ -74,5 +79,5 @@ export async function GET(request: NextRequest) {
     prisma.syncRun.upsert({ where: { source: "football-data.org:uefa" }, create: { source: "football-data.org:uefa", completedAt: new Date(), fixtureCount: matches.length }, update: { completedAt: new Date(), fixtureCount: matches.length } }),
   ]);
 
-  return NextResponse.json({ synced: matches.length, teamsSynced: teams.size, leaguesSynced: results.length, source: "football-data.org" });
+  return NextResponse.json({ synced: matches.length, teamsSynced: teams.size, leaguesSynced: results.length, lookaheadDays, source: "football-data.org" });
 }
