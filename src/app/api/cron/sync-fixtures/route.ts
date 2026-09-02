@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const API_URL = "https://v3.football.api-sports.io/fixtures";
+const API_URL = "https://v3.football.api-sports.io";
+const EREDIVISIE_LEAGUE_ID = "88";
+const EREDIVISIE_SEASON = "2026";
 
 type ApiFixture = {
   fixture: {
@@ -21,6 +23,10 @@ type ApiFixture = {
 };
 
 type ApiResponse = { response: ApiFixture[] };
+
+type ApiTeamResponse = {
+  response: Array<{ team: { id: number; name: string; logo: string | null } }>;
+};
 
 function isAuthorized(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -40,25 +46,38 @@ export async function GET(request: NextRequest) {
   const from = new Date();
   const to = new Date(from);
   to.setUTCDate(to.getUTCDate() + 7);
-  const query = new URLSearchParams({
+  const fixtureQuery = new URLSearchParams({
+    league: EREDIVISIE_LEAGUE_ID,
+    season: EREDIVISIE_SEASON,
     from: from.toISOString().slice(0, 10),
     to: to.toISOString().slice(0, 10),
     timezone: "UTC",
   });
 
-  const response = await fetch(`${API_URL}?${query}`, {
-    headers: { "x-apisports-key": apiKey },
-    cache: "no-store",
-  });
+  const headers = { "x-apisports-key": apiKey };
+  const [fixturesResponse, teamsResponse] = await Promise.all([
+    fetch(`${API_URL}/fixtures?${fixtureQuery}`, { headers, cache: "no-store" }),
+    fetch(
+      `${API_URL}/teams?${new URLSearchParams({ league: EREDIVISIE_LEAGUE_ID, season: EREDIVISIE_SEASON })}`,
+      { headers, cache: "no-store" },
+    ),
+  ]);
 
-  if (!response.ok) {
+  if (!fixturesResponse.ok || !teamsResponse.ok) {
     return NextResponse.json(
-      { error: "API-Football request failed", status: response.status },
+      {
+        error: "API-Football request failed",
+        fixtureStatus: fixturesResponse.status,
+        teamStatus: teamsResponse.status,
+      },
       { status: 502 },
     );
   }
 
-  const payload = (await response.json()) as ApiResponse;
+  const [payload, teamsPayload] = await Promise.all([
+    fixturesResponse.json() as Promise<ApiResponse>,
+    teamsResponse.json() as Promise<ApiTeamResponse>,
+  ]);
   await prisma.$transaction([
     ...payload.response.map((item) =>
       prisma.league.upsert({
@@ -76,18 +95,9 @@ export async function GET(request: NextRequest) {
         },
       }),
     ),
-    ...payload.response.flatMap((item) => [
-      prisma.team.upsert({
-        where: { id: item.teams.home.id },
-        create: item.teams.home,
-        update: item.teams.home,
-      }),
-      prisma.team.upsert({
-        where: { id: item.teams.away.id },
-        create: item.teams.away,
-        update: item.teams.away,
-      }),
-    ]),
+    ...teamsPayload.response.map(({ team }) =>
+      prisma.team.upsert({ where: { id: team.id }, create: team, update: team }),
+    ),
   ]);
 
   await prisma.$transaction([
@@ -120,5 +130,10 @@ export async function GET(request: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ synced: payload.response.length });
+  return NextResponse.json({
+    synced: payload.response.length,
+    teamsSynced: teamsPayload.response.length,
+    league: "Eredivisie",
+    season: EREDIVISIE_SEASON,
+  });
 }

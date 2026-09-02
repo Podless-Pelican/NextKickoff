@@ -8,10 +8,10 @@ A serverless Next.js dashboard for tracking upcoming football fixtures from API-
 2. Generate the Prisma client: `npx prisma generate`.
 3. Apply the included schema: `npx prisma migrate deploy`.
 4. Start the app: `npm run dev`.
-5. Seed the first seven-day fixture window by calling `GET /api/cron/sync-fixtures` with `Authorization: Bearer <CRON_SECRET>`. Then choose teams and leagues in the dashboard.
+5. Seed all Eredivisie clubs and the next seven days of Eredivisie fixtures by calling `GET /api/cron/sync-fixtures` with `Authorization: Bearer <CRON_SECRET>`. Then choose teams and the Eredivisie in the dashboard.
 
 ## Deployment
 
 Deploy to Vercel with a serverless-compatible PostgreSQL provider such as Neon or Supabase. Add `DATABASE_URL`, `API_FOOTBALL_KEY`, and `CRON_SECRET` to the Vercel project environment variables. `vercel.json` invokes the secured sync route at minute zero every hour.
 
-Vercel Cron requests must include the configured `CRON_SECRET`; Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` when that environment variable is set. The sync requests the next seven days in UTC and upserts leagues, teams, and fixtures by API-Football IDs.
+Vercel Cron requests must include the configured `CRON_SECRET`; Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` when that environment variable is set. The sync imports all Eredivisie clubs for season 2026 and the next seven days of Eredivisie fixtures in UTC, upserting records by API-Football IDs.
