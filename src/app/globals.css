@@ -1,29 +1,7 @@
 @import "tailwindcss";
 
-:root { --ink: #17201f; --paper: #f5f2e9; --line: #d8d4c8; --accent: #d75332; --muted: #68716d; }
-
-@theme inline {
-  --color-background: var(--paper);
-  --color-foreground: var(--ink);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+html,
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-geist-sans), sans-serif;
+  background-color: #0b1120;
+  color: #e9eefb;
 }
-
-button { font: inherit; }
-.shell { max-width: 1180px; margin: 0 auto; padding: 48px 24px 80px; }
-.masthead, .section-heading { display: flex; justify-content: space-between; gap: 24px; align-items: end; }
-.masthead { border-bottom: 2px solid var(--ink); padding-bottom: 24px; }
-h1, h2, p { margin: 0; } h1 { font-size: clamp(2.5rem, 6vw, 5rem); line-height: .95; font-weight: 750; } h2 { font-size: 1.45rem; }
-.eyebrow { color: var(--accent); font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; }
-.sync-status, .fixture time, .fixture p, .empty { color: var(--muted); font-size: .85rem; }
-.fixture-section { padding: 40px 0; }.count { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
-.fixtures { border-top: 1px solid var(--line); margin-top: 20px; }.fixture { display: grid; grid-template-columns: 180px minmax(260px, 1fr) 1fr; gap: 18px; padding: 19px 0; border-bottom: 1px solid var(--line); align-items: center; }
-.teams { display: flex; align-items: center; gap: 10px; }.teams span { color: var(--accent); font-size: .72rem; font-weight: 700; text-transform: uppercase; }.empty { border: 1px dashed var(--line); padding: 24px; margin-top: 20px; }
-.watchlist { border-top: 2px solid var(--ink); padding-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }.choice-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }.choice { cursor: pointer; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--ink); padding: 8px 10px; font-size: .84rem; }.choice:hover, .choice.selected { border-color: var(--ink); background: var(--ink); color: var(--paper); }
-@media (max-width: 700px) { .shell { padding: 28px 16px 48px; }.masthead, .section-heading { align-items: start; flex-direction: column; }.fixture { grid-template-columns: 1fr; gap: 7px; }.watchlist { grid-template-columns: 1fr; gap: 32px; } }
