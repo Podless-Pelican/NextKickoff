@@ -42,6 +42,20 @@ async function main() {
   console.log(`teams=${totalTeams} (without domestic league: ${ungroupedTeams})`);
   console.log(`matches=${totalMatches} (upcoming: ${upcomingMatches})`);
 
+  const ungrouped = await prisma.team.findMany({
+    where: { competitionId: null },
+    orderBy: { name: "asc" },
+    take: 60,
+    select: { name: true, slug: true },
+  });
+
+  if (ungrouped.length) {
+    console.log("\n=== Clubs with no domestic league (first 60) ===");
+    console.log("These only came from the UEFA scraper. A club that also plays in one of the");
+    console.log("12 football-data competitions appearing here means its rows did not merge.");
+    for (const team of ungrouped) console.log(`${team.name.padEnd(34)} ${team.slug}`);
+  }
+
   const next = await prisma.match.findMany({
     where: { utcDate: { gte: new Date() } },
     orderBy: { utcDate: "asc" },

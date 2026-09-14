@@ -90,24 +90,42 @@ export async function upsertCompetitions(
 async function resolveTeamIds(teams: TeamInput[]) {
   const allCandidates = [...new Set(teams.flatMap((team) => team.candidates))];
   const existing = await prisma.team.findMany({
-    where: { slug: { in: allCandidates } },
-    select: { id: true, slug: true },
+    where: { OR: [{ slug: { in: allCandidates } }, { aliases: { hasSome: allCandidates } }] },
+    select: { id: true, slug: true, aliases: true },
   });
 
-  const idBySlug = new Map(existing.map((team) => [team.slug, team.id]));
+  // Every known name variant points at the club's canonical slug.
+  const keyByCandidate = new Map<string, string>();
+  const aliasesByKey = new Map<string, Set<string>>();
+  for (const team of existing) {
+    const known = new Set([team.slug, ...team.aliases]);
+    aliasesByKey.set(team.slug, known);
+    for (const value of known) keyByCandidate.set(value, team.slug);
+  }
+
   const competitionIdByCode = new Map(
     (
       await prisma.competition.findMany({ select: { id: true, code: true } })
     ).map((competition) => [competition.code, competition.id]),
   );
 
-  const resolved = new Map<string, TeamInput & { slug: string }>();
+  const resolved = new Map<string, TeamInput & { slug: string; aliases: Set<string> }>();
   for (const team of teams) {
-    const slug = team.candidates.find((candidate) => idBySlug.has(candidate)) ?? team.candidates[0];
+    const hit = team.candidates.map((candidate) => keyByCandidate.get(candidate)).find(Boolean);
+    const slug = hit ?? team.candidates[0];
     const previous = resolved.get(slug);
+    const aliases = new Set([
+      ...(aliasesByKey.get(slug) ?? []),
+      ...(previous?.aliases ?? []),
+      ...team.candidates,
+      slug,
+    ]);
+    for (const candidate of aliases) keyByCandidate.set(candidate, slug);
+
     resolved.set(slug, {
       ...team,
       slug,
+      aliases,
       // keep a domestic league once we have seen one for this club
       domesticCompetitionCode: team.domesticCompetitionCode ?? previous?.domesticCompetitionCode ?? null,
     });
@@ -125,6 +143,7 @@ async function resolveTeamIds(teams: TeamInput[]) {
           where: { slug: team.slug },
           create: {
             slug: team.slug,
+            aliases: [...team.aliases],
             name: team.name,
             shortName: team.shortName,
             tla: team.tla,
@@ -133,6 +152,7 @@ async function resolveTeamIds(teams: TeamInput[]) {
           },
           update: {
             name: team.name,
+            aliases: { set: [...team.aliases] },
             ...(team.shortName ? { shortName: team.shortName } : {}),
             ...(team.tla ? { tla: team.tla } : {}),
             ...(team.crest ? { crest: team.crest } : {}),
@@ -151,7 +171,8 @@ async function resolveTeamIds(teams: TeamInput[]) {
   return {
     teamIdBySlug: new Map(stored.map((team) => [team.slug, team.id])),
     resolvedSlugFor: (team: TeamInput) =>
-      team.candidates.find((candidate) => idBySlug.has(candidate)) ?? team.candidates[0],
+      team.candidates.map((candidate) => keyByCandidate.get(candidate)).find(Boolean) ??
+      team.candidates[0],
     teamCount: rows.length,
   };
 }
