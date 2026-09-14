@@ -109,10 +109,40 @@ async function resolveTeamIds(teams: TeamInput[]) {
     ).map((competition) => [competition.code, competition.id]),
   );
 
+  // Sources can name the same club very differently ("AZ" vs "AZ Alkmaar") while both
+  // publish the same team code, so that is used as a second link.
+  const codes = [...new Set(teams.map((team) => team.tla).filter((tla): tla is string => Boolean(tla)))];
+  const byCode = new Map<string, Array<{ slug: string; aliases: string[] }>>();
+  if (codes.length) {
+    const coded = await prisma.team.findMany({
+      where: { tla: { in: codes } },
+      select: { slug: true, aliases: true, tla: true },
+    });
+    for (const team of coded) {
+      if (!team.tla) continue;
+      byCode.set(team.tla, [...(byCode.get(team.tla) ?? []), { slug: team.slug, aliases: team.aliases }]);
+    }
+  }
+
   const resolved = new Map<string, TeamInput & { slug: string; aliases: Set<string> }>();
   for (const team of teams) {
-    const hit = team.candidates.map((candidate) => keyByCandidate.get(candidate)).find(Boolean);
-    const slug = hit ?? team.candidates[0];
+    let matched = team.candidates.map((candidate) => keyByCandidate.get(candidate)).find(Boolean);
+
+    if (!matched && team.tla) {
+      // Require a shared word so two unrelated clubs sharing a code never merge.
+      const tokens = new Set(team.candidates.flatMap((candidate) => candidate.split("-")));
+      const linked = (byCode.get(team.tla) ?? []).find((candidate) =>
+        [candidate.slug, ...candidate.aliases].some((value) =>
+          value.split("-").some((token) => tokens.has(token)),
+        ),
+      );
+      if (linked) {
+        matched = linked.slug;
+        aliasesByKey.set(linked.slug, new Set([linked.slug, ...linked.aliases]));
+      }
+    }
+
+    const slug = matched ?? team.candidates[0];
     const previous = resolved.get(slug);
     const aliases = new Set([
       ...(aliasesByKey.get(slug) ?? []),

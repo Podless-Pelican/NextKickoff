@@ -11,6 +11,7 @@ type ScrapedTeam = {
   international: unknown;
   display: unknown;
   official: unknown;
+  code: unknown;
   logo: unknown;
   placeholder: boolean;
 };
@@ -86,6 +87,7 @@ async function extractRendered(page: Page): Promise<ScrapedMatch[]> {
           international: match.homeTeam?.internationalName ?? null,
           display: match.homeTeam?.translations?.displayName ?? null,
           official: match.homeTeam?.translations?.displayOfficialName ?? null,
+          code: match.homeTeam?.translations?.displayTeamCode ?? match.homeTeam?.teamCode ?? null,
           logo: match.homeTeam?.logoUrl ?? match.homeTeam?.mediumLogoUrl ?? null,
           placeholder: Boolean(match.homeTeam?.isPlaceHolder),
         },
@@ -93,6 +95,7 @@ async function extractRendered(page: Page): Promise<ScrapedMatch[]> {
           international: match.awayTeam?.internationalName ?? null,
           display: match.awayTeam?.translations?.displayName ?? null,
           official: match.awayTeam?.translations?.displayOfficialName ?? null,
+          code: match.awayTeam?.translations?.displayTeamCode ?? match.awayTeam?.teamCode ?? null,
           logo: match.awayTeam?.logoUrl ?? match.awayTeam?.mediumLogoUrl ?? null,
           placeholder: Boolean(match.awayTeam?.isPlaceHolder),
         },
@@ -154,12 +157,14 @@ function toMatchInput(
     international: text(match.home.international),
     official: text(match.home.official),
     display: text(match.home.display),
+    code: text(match.home.code),
     logo: text(match.home.logo),
   };
   const away = {
     international: text(match.away.international),
     official: text(match.away.official),
     display: text(match.away.display),
+    code: text(match.away.code),
     logo: text(match.away.logo),
   };
 
@@ -170,11 +175,13 @@ function toMatchInput(
   const homeTeam = buildTeamInput({
     names: [home.international, home.official, home.display],
     name: home.international ?? homeName,
+    tla: home.code,
     crest: home.logo,
   });
   const awayTeam = buildTeamInput({
     names: [away.international, away.official, away.display],
     name: away.international ?? awayName,
+    tla: away.code,
     crest: away.logo,
   });
   if (!homeTeam || !awayTeam) return null;
