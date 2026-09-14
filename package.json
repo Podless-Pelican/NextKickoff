@@ -6,10 +6,12 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "scrape:uefa": "node scripts/scrape-uefa.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
+    "dotenv": "^17.4.2",
     "next": "15.5.24",
     "prisma": "^6.19.3",
     "react": "19.1.0",
@@ -23,6 +25,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.5.24",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
