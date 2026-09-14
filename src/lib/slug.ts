@@ -23,9 +23,9 @@ export function teamSlug(name: string): string {
 }
 
 /** Slug variants for one club, most specific first, used to match across sources. */
-export function teamSlugCandidates(...names: Array<string | null | undefined>): string[] {
+export function teamSlugCandidates(...names: Array<unknown>): string[] {
   const candidates = names
-    .filter((name): name is string => Boolean(name && name.trim()))
+    .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
     .map(teamSlug)
     .filter(Boolean);
 

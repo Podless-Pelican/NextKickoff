@@ -8,23 +8,41 @@ const UEFA_SOURCE = "uefa";
 const DATE_BUTTON = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} \w{3}$/;
 
 type ScrapedTeam = {
-  international: string | null;
-  display: string | null;
-  official: string | null;
-  logo: string | null;
+  international: unknown;
+  display: unknown;
+  official: unknown;
+  logo: unknown;
 };
 
 type ScrapedMatch = {
   id: string;
-  kickoff: string | null;
+  kickoff: unknown;
   finished: boolean;
   started: boolean;
   cancelled: boolean;
-  round: string | null;
+  round: unknown;
   matchday: number | null;
   home: ScrapedTeam;
   away: ScrapedTeam;
 };
+
+/** uefa.com returns some labels as locale maps such as { EN: "Feyenoord" }. */
+function text(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferred = record.EN ?? record.en;
+    if (typeof preferred === "string") return preferred.trim() || null;
+
+    const first = Object.values(record).find(
+      (item) => typeof item === "string" && item.trim().length > 0,
+    );
+    return typeof first === "string" ? first.trim() : null;
+  }
+
+  return null;
+}
 
 function statusOf(match: ScrapedMatch) {
   if (match.cancelled) return "CANCELLED";
@@ -104,29 +122,46 @@ function toMatchInput(
   match: ScrapedMatch,
   competition: (typeof UEFA_COMPETITIONS)[number],
 ): MatchInput | null {
-  if (!match.kickoff) return null;
+  const kickoff = text(match.kickoff);
+  if (!kickoff) return null;
 
-  const homeName = match.home.official ?? match.home.international ?? match.home.display;
-  const awayName = match.away.official ?? match.away.international ?? match.away.display;
+  const utcDate = new Date(kickoff);
+  if (Number.isNaN(utcDate.getTime())) return null;
+
+  const home = {
+    international: text(match.home.international),
+    official: text(match.home.official),
+    display: text(match.home.display),
+    logo: text(match.home.logo),
+  };
+  const away = {
+    international: text(match.away.international),
+    official: text(match.away.official),
+    display: text(match.away.display),
+    logo: text(match.away.logo),
+  };
+
+  const homeName = home.official ?? home.international ?? home.display;
+  const awayName = away.official ?? away.international ?? away.display;
   if (!homeName || !awayName) return null;
 
   const homeTeam = buildTeamInput({
-    names: [match.home.international, match.home.official, match.home.display],
-    name: match.home.international ?? homeName,
-    crest: match.home.logo,
+    names: [home.international, home.official, home.display],
+    name: home.international ?? homeName,
+    crest: home.logo,
   });
   const awayTeam = buildTeamInput({
-    names: [match.away.international, match.away.official, match.away.display],
-    name: match.away.international ?? awayName,
-    crest: match.away.logo,
+    names: [away.international, away.official, away.display],
+    name: away.international ?? awayName,
+    crest: away.logo,
   });
   if (!homeTeam || !awayTeam) return null;
 
   return {
     externalId: match.id,
-    utcDate: new Date(match.kickoff),
+    utcDate,
     status: statusOf(match),
-    stage: match.round,
+    stage: text(match.round),
     matchday: match.matchday,
     competitionCode: competition.code,
     homeTeam,
