@@ -3,24 +3,11 @@ import { PrismaClient } from "@prisma/client";
 import { chromium } from "playwright";
 
 const competitions = [
-  { url: "https://www.uefa.com/uefachampionsleague/fixtures-results/", fallbackId: 1, fallbackName: "UEFA Champions League" },
-  { url: "https://www.uefa.com/uefaeuropaleague/fixtures-results/", fallbackId: 2, fallbackName: "UEFA Europa League" },
-  { url: "https://www.uefa.com/uefaconferenceleague/fixtures-results/", fallbackId: 3, fallbackName: "UEFA Conference League" },
+  { url: "https://www.uefa.com/uefaeuropaleague/fixtures-results/", fallbackId: 73, name: "UEFA Europa League" },
+  { url: "https://www.uefa.com/uefaconferenceleague/fixtures-results/", fallbackId: 10216, name: "UEFA Conference League" },
 ];
 
 const prisma = new PrismaClient();
-
-function pickName(team) {
-  return team.translations?.displayName ?? team.translations?.internationalName ?? team.internationalName ?? team.name;
-}
-
-function pickCompetitionName(competition, fallbackName) {
-  return competition?.translations?.name ?? competition?.name ?? fallbackName;
-}
-
-function pickKickoff(match) {
-  return match.kickOffTime?.dateTime ?? match.kickOffTime?.date?.dateTime ?? match.kickOffTime?.date;
-}
 
 function matchStatus(match) {
   if (match.status?.cancelled) return "CANCELLED";
@@ -33,21 +20,29 @@ async function scrapeCompetition(browser, competition) {
   const page = await browser.newPage();
   await page.goto(competition.url, { waitUntil: "networkidle", timeout: 60_000 });
   await page.locator("pk-match-unit").first().waitFor({ timeout: 30_000 });
-  const matches = await page.locator("pk-match-unit").evaluateAll((elements) => {
-    const findMatchData = (element) => {
-      const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
-      let fiber = fiberKey ? element[fiberKey] : null;
-      while (fiber) {
-        const matchData = fiber.memoizedProps?.matchData;
-        if (matchData) return matchData;
-        fiber = fiber.return;
-      }
-      return null;
-    };
-    return elements.map(findMatchData).filter(Boolean);
-  });
+  const dateButtons = page.locator("button").filter({ hasText: /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} \w{3}$/ });
+  const matchMap = new Map();
+
+  for (let index = 0; index < await dateButtons.count(); index += 1) {
+    await dateButtons.nth(index).click();
+    await page.waitForTimeout(300);
+    const matches = await page.locator("pk-match-unit").evaluateAll((elements) => {
+      const findMatchData = (element) => {
+        const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
+        let fiber = fiberKey ? element[fiberKey] : null;
+        while (fiber) {
+          if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
+          fiber = fiber.return;
+        }
+        return null;
+      };
+      return elements.map(findMatchData).filter(Boolean);
+    });
+    for (const match of matches) matchMap.set(match.id, match);
+  }
+
   await page.close();
-  return matches.map((match) => ({ match, competition }));
+  return [...matchMap.values()].map((match) => ({ competition, match }));
 }
 
 try {
@@ -56,18 +51,18 @@ try {
   await browser.close();
 
   const upcoming = scraped.filter(({ match }) => {
-    const kickoff = pickKickoff(match);
+    const kickoff = match.kickOffTime?.dateTime;
     return kickoff && new Date(kickoff) >= new Date();
   });
   const leagues = new Map();
   const teams = new Map();
-  for (const { match, competition: fallback } of upcoming) {
-    const competition = match.competition ?? {};
-    const leagueId = Number(competition.id ?? fallback.fallbackId);
-    leagues.set(leagueId, { id: leagueId, name: pickCompetitionName(competition, fallback.fallbackName) });
+  for (const { competition, match } of upcoming) {
+    const leagueId = Number(match.competition?.id ?? competition.fallbackId);
+    const leagueName = match.competition?.translations?.name ?? match.competition?.name ?? competition.name;
+    leagues.set(leagueId, { id: leagueId, name: leagueName });
     for (const team of [match.homeTeam, match.awayTeam]) {
       const id = Number(team?.id);
-      const name = team && pickName(team);
+      const name = team?.translations?.displayName ?? team?.internationalName;
       if (id && name) teams.set(id, { id, name, logo: team.logoUrl ?? null });
     }
   }
@@ -81,22 +76,18 @@ try {
     ...[...teams.values()].map((team) => prisma.team.upsert({ where: { id: team.id }, create: team, update: team })),
   ]);
   await prisma.$transaction([
-    ...upcoming.map(({ match, competition: fallback }) => {
-      const leagueId = Number(match.competition?.id ?? fallback.fallbackId);
-      return prisma.fixture.upsert({
-        where: { id: Number(match.id) },
-        create: { id: Number(match.id), startsAt: new Date(pickKickoff(match)), status: matchStatus(match), leagueId, homeTeamId: Number(match.homeTeam.id), awayTeamId: Number(match.awayTeam.id) },
-        update: { startsAt: new Date(pickKickoff(match)), status: matchStatus(match), leagueId, homeTeamId: Number(match.homeTeam.id), awayTeamId: Number(match.awayTeam.id) },
-      });
-    }),
+    ...upcoming.map(({ competition, match }) => prisma.fixture.upsert({
+      where: { id: Number(match.id) },
+      create: { id: Number(match.id), startsAt: new Date(match.kickOffTime.dateTime), status: matchStatus(match), leagueId: Number(match.competition?.id ?? competition.fallbackId), homeTeamId: Number(match.homeTeam.id), awayTeamId: Number(match.awayTeam.id) },
+      update: { startsAt: new Date(match.kickOffTime.dateTime), status: matchStatus(match), leagueId: Number(match.competition?.id ?? competition.fallbackId), homeTeamId: Number(match.homeTeam.id), awayTeamId: Number(match.awayTeam.id) },
+    })),
     prisma.syncRun.upsert({
       where: { source: "uefa.com" },
       create: { source: "uefa.com", completedAt: new Date(), fixtureCount: upcoming.length },
       update: { completedAt: new Date(), fixtureCount: upcoming.length },
     }),
   ]);
-
-  console.log(`Synced ${upcoming.length} upcoming UEFA fixtures and ${teams.size} teams.`);
+  console.log(`Synced ${upcoming.length} upcoming UEFA fixtures.`);
 } finally {
   await prisma.$disconnect();
 }
