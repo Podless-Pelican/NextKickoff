@@ -86,11 +86,16 @@ async function fetchMatches(token: string, from: Date, to: Date) {
   return { matches, requests, mode: "per-competition" as const };
 }
 
+const AREA_BY_CODE = new Map(
+  FOOTBALL_DATA_COMPETITIONS.map((competition) => [competition.code, competition.area]),
+);
+
 function toMatchInput(match: ApiMatch): MatchInput | null {
   const code = match.competition?.code;
   if (!code || !match.utcDate) return null;
 
   const domesticCompetitionCode = DOMESTIC_LEAGUE_CODES.has(code) ? code : null;
+  const country = domesticCompetitionCode ? AREA_BY_CODE.get(domesticCompetitionCode) ?? null : null;
   const homeTeam = match.homeTeam?.name
     ? buildTeamInput({
         names: [match.homeTeam.name, match.homeTeam.shortName],
@@ -98,6 +103,7 @@ function toMatchInput(match: ApiMatch): MatchInput | null {
         shortName: match.homeTeam.shortName,
         tla: match.homeTeam.tla,
         crest: match.homeTeam.crest,
+        country,
         domesticCompetitionCode,
       })
     : null;
@@ -108,6 +114,7 @@ function toMatchInput(match: ApiMatch): MatchInput | null {
         shortName: match.awayTeam.shortName,
         tla: match.awayTeam.tla,
         crest: match.awayTeam.crest,
+        country,
         domesticCompetitionCode,
       })
     : null;
