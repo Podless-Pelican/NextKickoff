@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "sync:football": "tsx scripts/sync-football-data.ts",
-    "scrape:uefa": "tsx scripts/scrape-uefa.ts"
+    "scrape:uefa": "tsx scripts/scrape-uefa.ts",
+    "db:stats": "tsx scripts/db-stats.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

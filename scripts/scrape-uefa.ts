@@ -1,32 +1,31 @@
 import "dotenv/config";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { UEFA_COMPETITIONS } from "../src/lib/competitions";
 import { buildTeamInput, persistMatches, upsertCompetitions, type MatchInput } from "../src/lib/persist";
 import { prisma } from "../src/lib/prisma";
 
 const UEFA_SOURCE = "uefa";
-const DATE_BUTTON = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} \w{3}$/;
+const MAX_SCROLL_STEPS = 200;
 
 type ScrapedTeam = {
   international: unknown;
   display: unknown;
   official: unknown;
   logo: unknown;
+  placeholder: boolean;
 };
 
 type ScrapedMatch = {
   id: string;
   kickoff: unknown;
-  finished: boolean;
-  started: boolean;
-  cancelled: boolean;
+  status: unknown;
   round: unknown;
   matchday: number | null;
   home: ScrapedTeam;
   away: ScrapedTeam;
 };
 
-/** uefa.com returns some labels as locale maps such as { EN: "Feyenoord" }. */
+/** uefa.com returns many labels as locale maps such as { EN: "Feyenoord" }. */
 function text(value: unknown): string | null {
   if (typeof value === "string") return value.trim() || null;
 
@@ -44,16 +43,66 @@ function text(value: unknown): string | null {
   return null;
 }
 
-function statusOf(match: ScrapedMatch) {
-  if (match.cancelled) return "CANCELLED";
-  if (match.finished) return "FINISHED";
-  if (match.started) return "IN_PLAY";
+/** Match status arrives either as a string enum or as an object of flags. */
+function statusOf(raw: unknown): string {
+  if (raw && typeof raw === "object") {
+    const flags = raw as Record<string, unknown>;
+    if (flags.cancelled) return "CANCELLED";
+    if (flags.finished) return "FINISHED";
+    if (flags.started) return "IN_PLAY";
+    return "SCHEDULED";
+  }
+
+  const value = (text(raw) ?? "").toUpperCase();
+  if (value.includes("CANCEL")) return "CANCELLED";
+  if (value.includes("POSTPON")) return "POSTPONED";
+  if (value.includes("FINISH") || value.includes("FULL")) return "FINISHED";
+  if (value.includes("LIVE") || value.includes("PLAY") || value.includes("PAUSE")) return "IN_PLAY";
   return "SCHEDULED";
 }
 
+// Helpers stay inline below: tsx/esbuild wraps named functions in __name(), which
+// is not defined inside the browser context Playwright serialises them into.
+async function extractRendered(page: Page): Promise<ScrapedMatch[]> {
+  return (await page.locator("pk-match-unit").evaluateAll((elements) =>
+    elements
+      .map((element) => {
+        const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
+        let fiber = fiberKey ? (element as unknown as Record<string, any>)[fiberKey] : null;
+        while (fiber) {
+          if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
+          fiber = fiber.return;
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .map((match: any) => ({
+        id: String(match.id),
+        kickoff: match.kickOffTime?.dateTime ?? match.kickOffTime?.date ?? null,
+        status: match.status ?? null,
+        round: match.round?.translations?.name ?? match.round?.name ?? null,
+        matchday: typeof match.matchday === "number" ? match.matchday : null,
+        home: {
+          international: match.homeTeam?.internationalName ?? null,
+          display: match.homeTeam?.translations?.displayName ?? null,
+          official: match.homeTeam?.translations?.displayOfficialName ?? null,
+          logo: match.homeTeam?.logoUrl ?? match.homeTeam?.mediumLogoUrl ?? null,
+          placeholder: Boolean(match.homeTeam?.isPlaceHolder),
+        },
+        away: {
+          international: match.awayTeam?.internationalName ?? null,
+          display: match.awayTeam?.translations?.displayName ?? null,
+          official: match.awayTeam?.translations?.displayOfficialName ?? null,
+          logo: match.awayTeam?.logoUrl ?? match.awayTeam?.mediumLogoUrl ?? null,
+          placeholder: Boolean(match.awayTeam?.isPlaceHolder),
+        },
+      })),
+  )) as ScrapedMatch[];
+}
+
 /**
- * uefa.com renders fixtures client side, so the structured match payload is read
- * from the React props behind each rendered match card.
+ * The fixture list is virtualised: cards unmount once scrolled past, so matches are
+ * collected incrementally while scrolling through the season.
  */
 async function scrapeCompetition(browser: Browser, competition: (typeof UEFA_COMPETITIONS)[number]) {
   const page = await browser.newPage();
@@ -62,54 +111,24 @@ async function scrapeCompetition(browser: Browser, competition: (typeof UEFA_COM
   try {
     await page.goto(competition.url, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await page.locator("pk-match-unit").first().waitFor({ timeout: 45_000 });
+    await page.waitForTimeout(600);
 
-    const dateButtons = page.locator("button").filter({ hasText: DATE_BUTTON });
-    const dateCount = await dateButtons.count();
+    let stagnant = 0;
+    for (let step = 0; step < MAX_SCROLL_STEPS && stagnant < 6; step += 1) {
+      const before = collected.size;
+      for (const match of await extractRendered(page)) collected.set(match.id, match);
+      stagnant = collected.size === before ? stagnant + 1 : 0;
 
-    for (let index = 0; index < Math.max(dateCount, 1); index += 1) {
-      if (dateCount > 0) {
-        await dateButtons.nth(index).click({ timeout: 15_000 }).catch(() => undefined);
-        await page.waitForTimeout(350);
+      const atBottom = await page.evaluate(() => {
+        window.scrollBy(0, Math.round(window.innerHeight * 0.75));
+        return window.scrollY + window.innerHeight >= document.body.scrollHeight - 120;
+      });
+      await page.waitForTimeout(450);
+
+      if (atBottom) {
+        for (const match of await extractRendered(page)) collected.set(match.id, match);
+        break;
       }
-
-      // Helpers must stay inline: tsx/esbuild wraps named functions in __name(), which
-      // is not defined inside the browser context Playwright serialises this into.
-      const matches = (await page.locator("pk-match-unit").evaluateAll((elements) =>
-        elements
-          .map((element) => {
-            const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
-            let fiber = fiberKey ? (element as unknown as Record<string, any>)[fiberKey] : null;
-            while (fiber) {
-              if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
-              fiber = fiber.return;
-            }
-            return null;
-          })
-          .filter(Boolean)
-          .map((match: any) => ({
-            id: String(match.id),
-            kickoff: match.kickOffTime?.dateTime ?? match.kickOffTime?.date ?? null,
-            finished: Boolean(match.status?.finished),
-            started: Boolean(match.status?.started),
-            cancelled: Boolean(match.status?.cancelled),
-            round: match.round?.translations?.name ?? match.round?.name ?? null,
-            matchday: typeof match.matchday === "number" ? match.matchday : null,
-            home: {
-              international: match.homeTeam?.internationalName ?? null,
-              display: match.homeTeam?.translations?.displayName ?? null,
-              official: match.homeTeam?.translations?.displayOfficialName ?? null,
-              logo: match.homeTeam?.logoUrl ?? match.homeTeam?.mediumLogoUrl ?? null,
-            },
-            away: {
-              international: match.awayTeam?.internationalName ?? null,
-              display: match.awayTeam?.translations?.displayName ?? null,
-              official: match.awayTeam?.translations?.displayOfficialName ?? null,
-              logo: match.awayTeam?.logoUrl ?? match.awayTeam?.mediumLogoUrl ?? null,
-            },
-          })),
-      )) as ScrapedMatch[];
-
-      for (const match of matches) collected.set(match.id, match);
     }
   } finally {
     await page.close();
@@ -127,6 +146,9 @@ function toMatchInput(
 
   const utcDate = new Date(kickoff);
   if (Number.isNaN(utcDate.getTime())) return null;
+
+  // Knockout slots without a drawn opponent ("Winners SF-1") are not real clubs.
+  if (match.home.placeholder || match.away.placeholder) return null;
 
   const home = {
     international: text(match.home.international),
@@ -160,7 +182,7 @@ function toMatchInput(
   return {
     externalId: match.id,
     utcDate,
-    status: statusOf(match),
+    status: statusOf(match.status),
     stage: text(match.round),
     matchday: match.matchday,
     competitionCode: competition.code,
@@ -182,7 +204,7 @@ async function main() {
         .map((match) => toMatchInput(match, competition))
         .filter((match): match is MatchInput => match !== null);
 
-      console.log(`${competition.name}: found ${mapped.length} fixtures`);
+      console.log(`${competition.name}: ${scraped.length} cards seen, ${mapped.length} usable fixtures`);
       inputs = inputs.concat(mapped);
     }
   } finally {
