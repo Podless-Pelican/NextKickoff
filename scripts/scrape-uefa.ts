@@ -54,26 +54,19 @@ async function scrapeCompetition(browser: Browser, competition: (typeof UEFA_COM
         await page.waitForTimeout(350);
       }
 
-      const matches = (await page.locator("pk-match-unit").evaluateAll((elements) => {
-        const findMatchData = (element: Element) => {
-          const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
-          let fiber = fiberKey ? (element as unknown as Record<string, any>)[fiberKey] : null;
-          while (fiber) {
-            if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
-            fiber = fiber.return;
-          }
-          return null;
-        };
-
-        const team = (input: any) => ({
-          international: input?.internationalName ?? null,
-          display: input?.translations?.displayName ?? null,
-          official: input?.translations?.displayOfficialName ?? null,
-          logo: input?.logoUrl ?? input?.mediumLogoUrl ?? null,
-        });
-
-        return elements
-          .map(findMatchData)
+      // Helpers must stay inline: tsx/esbuild wraps named functions in __name(), which
+      // is not defined inside the browser context Playwright serialises this into.
+      const matches = (await page.locator("pk-match-unit").evaluateAll((elements) =>
+        elements
+          .map((element) => {
+            const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
+            let fiber = fiberKey ? (element as unknown as Record<string, any>)[fiberKey] : null;
+            while (fiber) {
+              if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
+              fiber = fiber.return;
+            }
+            return null;
+          })
           .filter(Boolean)
           .map((match: any) => ({
             id: String(match.id),
@@ -83,10 +76,20 @@ async function scrapeCompetition(browser: Browser, competition: (typeof UEFA_COM
             cancelled: Boolean(match.status?.cancelled),
             round: match.round?.translations?.name ?? match.round?.name ?? null,
             matchday: typeof match.matchday === "number" ? match.matchday : null,
-            home: team(match.homeTeam),
-            away: team(match.awayTeam),
-          }));
-      })) as ScrapedMatch[];
+            home: {
+              international: match.homeTeam?.internationalName ?? null,
+              display: match.homeTeam?.translations?.displayName ?? null,
+              official: match.homeTeam?.translations?.displayOfficialName ?? null,
+              logo: match.homeTeam?.logoUrl ?? match.homeTeam?.mediumLogoUrl ?? null,
+            },
+            away: {
+              international: match.awayTeam?.internationalName ?? null,
+              display: match.awayTeam?.translations?.displayName ?? null,
+              official: match.awayTeam?.translations?.displayOfficialName ?? null,
+              logo: match.awayTeam?.logoUrl ?? match.awayTeam?.mediumLogoUrl ?? null,
+            },
+          })),
+      )) as ScrapedMatch[];
 
       for (const match of matches) collected.set(match.id, match);
     }
