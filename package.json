@@ -7,6 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "sync:football": "tsx scripts/sync-football-data.ts",
     "scrape:uefa": "tsx scripts/scrape-uefa.ts",
     "db:stats": "tsx scripts/db-stats.ts",
