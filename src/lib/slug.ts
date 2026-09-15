@@ -5,7 +5,7 @@ const CLUB_WORDS = new Set([
 
 /** Normalised club key used to merge the same club arriving from different sources. */
 export function teamSlug(name: string): string {
-  const words = name
+  const rawWords = name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -14,6 +14,19 @@ export function teamSlug(name: string): string {
     .trim()
     .split(" ")
     .filter(Boolean);
+
+  // Punctuated initialisms ("N.E.C.", "F.C. Copenhagen") arrive as loose letters,
+  // while the other source spells them solid.
+  const words: string[] = [];
+  let run = 0;
+  for (const word of rawWords) {
+    if (word.length === 1 && run > 0) {
+      words[words.length - 1] += word;
+    } else {
+      words.push(word);
+    }
+    run = word.length === 1 ? run + 1 : 0;
+  }
 
   const trimmed = words.filter(
     (word, index) => !(CLUB_WORDS.has(word) && (index === 0 || index === words.length - 1)),
