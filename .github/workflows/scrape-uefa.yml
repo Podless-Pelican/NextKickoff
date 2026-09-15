@@ -1,4 +1,4 @@
-name: Scrape UEFA fixtures
+name: Sync UEFA fixtures
 
 on:
   workflow_dispatch:
@@ -15,7 +15,6 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: npx prisma generate
       - run: npm run scrape:uefa
         env:

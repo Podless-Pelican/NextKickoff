@@ -1,34 +1,43 @@
 import "dotenv/config";
-import { chromium, type Browser, type Page } from "playwright";
 import { UEFA_COMPETITIONS } from "../src/lib/competitions";
 import { buildTeamInput, persistMatches, upsertCompetitions, type MatchInput } from "../src/lib/persist";
 import { prisma } from "../src/lib/prisma";
 
 const UEFA_SOURCE = "uefa";
-const MAX_SCROLL_STEPS = 200;
+const MATCH_API = "https://match.uefa.com/v5/matches";
+const PAGE_SIZE = 100;
+const MAX_OFFSET = 2_000;
 
-type ScrapedTeam = {
-  international: unknown;
-  display: unknown;
-  official: unknown;
-  code: unknown;
-  country: unknown;
-  logo: unknown;
-  placeholder: boolean;
+type UefaCompetition = (typeof UEFA_COMPETITIONS)[number];
+
+/** uefa.com returns most labels as locale maps such as { EN: "Feyenoord" }. */
+type Localised = string | Record<string, unknown> | null | undefined;
+
+type ApiTeam = {
+  internationalName?: string | null;
+  teamCode?: string | null;
+  isPlaceHolder?: boolean;
+  logoUrl?: string | null;
+  mediumLogoUrl?: string | null;
+  translations?: {
+    displayName?: Localised;
+    displayOfficialName?: Localised;
+    displayTeamCode?: Localised;
+    countryName?: Localised;
+  };
 };
 
-type ScrapedMatch = {
-  id: string;
-  kickoff: unknown;
-  status: unknown;
-  round: unknown;
-  matchday: number | null;
-  home: ScrapedTeam;
-  away: ScrapedTeam;
+type ApiMatch = {
+  id?: string;
+  kickOffTime?: { dateTime?: string };
+  status?: string;
+  round?: { translations?: { name?: Localised } };
+  matchday?: { sequenceNumber?: string };
+  homeTeam?: ApiTeam;
+  awayTeam?: ApiTeam;
 };
 
-/** uefa.com returns many labels as locale maps such as { EN: "Feyenoord" }. */
-function text(value: unknown): string | null {
+function text(value: Localised): string | null {
   if (typeof value === "string") return value.trim() || null;
 
   if (value && typeof value === "object") {
@@ -45,133 +54,72 @@ function text(value: unknown): string | null {
   return null;
 }
 
-/** Match status arrives either as a string enum or as an object of flags. */
-function statusOf(raw: unknown): string {
-  if (raw && typeof raw === "object") {
-    const flags = raw as Record<string, unknown>;
-    if (flags.cancelled) return "CANCELLED";
-    if (flags.finished) return "FINISHED";
-    if (flags.started) return "IN_PLAY";
-    return "SCHEDULED";
-  }
-
+function statusOf(raw: Localised): string {
   const value = (text(raw) ?? "").toUpperCase();
   if (value.includes("CANCEL")) return "CANCELLED";
   if (value.includes("POSTPON")) return "POSTPONED";
   if (value.includes("FINISH") || value.includes("FULL")) return "FINISHED";
-  if (value.includes("LIVE") || value.includes("PLAY") || value.includes("PAUSE")) return "IN_PLAY";
+  if (value.includes("LIVE") || value.includes("PLAYING") || value.includes("PAUSE")) return "IN_PLAY";
   return "SCHEDULED";
 }
 
-// Helpers stay inline below: tsx/esbuild wraps named functions in __name(), which
-// is not defined inside the browser context Playwright serialises them into.
-async function extractRendered(page: Page): Promise<ScrapedMatch[]> {
-  return (await page.locator("pk-match-unit").evaluateAll((elements) =>
-    elements
-      .map((element) => {
-        const fiberKey = Object.keys(element).find((key) => key.startsWith("__reactFiber"));
-        let fiber = fiberKey ? (element as unknown as Record<string, any>)[fiberKey] : null;
-        while (fiber) {
-          if (fiber.memoizedProps?.matchData) return fiber.memoizedProps.matchData;
-          fiber = fiber.return;
-        }
-        return null;
-      })
-      .filter(Boolean)
-      .map((match: any) => ({
-        id: String(match.id),
-        kickoff: match.kickOffTime?.dateTime ?? match.kickOffTime?.date ?? null,
-        status: match.status ?? null,
-        round: match.round?.translations?.name ?? match.round?.name ?? null,
-        matchday: typeof match.matchday === "number" ? match.matchday : null,
-        home: {
-          international: match.homeTeam?.internationalName ?? null,
-          display: match.homeTeam?.translations?.displayName ?? null,
-          official: match.homeTeam?.translations?.displayOfficialName ?? null,
-          code: match.homeTeam?.translations?.displayTeamCode ?? match.homeTeam?.teamCode ?? null,
-          country: match.homeTeam?.translations?.countryName ?? null,
-          logo: match.homeTeam?.logoUrl ?? match.homeTeam?.mediumLogoUrl ?? null,
-          placeholder: Boolean(match.homeTeam?.isPlaceHolder),
-        },
-        away: {
-          international: match.awayTeam?.internationalName ?? null,
-          display: match.awayTeam?.translations?.displayName ?? null,
-          official: match.awayTeam?.translations?.displayOfficialName ?? null,
-          code: match.awayTeam?.translations?.displayTeamCode ?? match.awayTeam?.teamCode ?? null,
-          country: match.awayTeam?.translations?.countryName ?? null,
-          logo: match.awayTeam?.logoUrl ?? match.awayTeam?.mediumLogoUrl ?? null,
-          placeholder: Boolean(match.awayTeam?.isPlaceHolder),
-        },
-      })),
-  )) as ScrapedMatch[];
+/** UEFA labels the 2026/27 season as 2027 and rolls over in July. */
+function currentSeasonYear(now = new Date()): number {
+  const year = now.getUTCFullYear();
+  return now.getUTCMonth() >= 6 ? year + 1 : year;
 }
 
-/**
- * The fixture list is virtualised: cards unmount once scrolled past, so matches are
- * collected incrementally while scrolling through the season.
- */
-async function scrapeCompetition(browser: Browser, competition: (typeof UEFA_COMPETITIONS)[number]) {
-  const page = await browser.newPage();
-  const collected = new Map<string, ScrapedMatch>();
+async function fetchCompetition(competition: UefaCompetition, seasonYear: number) {
+  const matches: ApiMatch[] = [];
 
-  try {
-    await page.goto(competition.url, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await page.locator("pk-match-unit").first().waitFor({ timeout: 45_000 });
-    await page.waitForTimeout(600);
+  for (let offset = 0; offset <= MAX_OFFSET; offset += PAGE_SIZE) {
+    const url = new URL(MATCH_API);
+    url.searchParams.set("competitionId", String(competition.competitionId));
+    url.searchParams.set("seasonYear", String(seasonYear));
+    url.searchParams.set("phase", "ALL");
+    url.searchParams.set("fromDate", `${seasonYear - 1}-06-01`);
+    url.searchParams.set("toDate", `${seasonYear}-06-30`);
+    url.searchParams.set("order", "ASC");
+    url.searchParams.set("limit", String(PAGE_SIZE));
+    url.searchParams.set("offset", String(offset));
+    url.searchParams.set("utcOffset", "0");
 
-    let stagnant = 0;
-    for (let step = 0; step < MAX_SCROLL_STEPS && stagnant < 6; step += 1) {
-      const before = collected.size;
-      for (const match of await extractRendered(page)) collected.set(match.id, match);
-      stagnant = collected.size === before ? stagnant + 1 : 0;
-
-      const atBottom = await page.evaluate(() => {
-        window.scrollBy(0, Math.round(window.innerHeight * 0.75));
-        return window.scrollY + window.innerHeight >= document.body.scrollHeight - 120;
-      });
-      await page.waitForTimeout(450);
-
-      if (atBottom) {
-        for (const match of await extractRendered(page)) collected.set(match.id, match);
-        break;
-      }
+    const response = await fetch(url, { headers: { accept: "application/json" } });
+    if (!response.ok) {
+      throw new Error(`uefa.com returned ${response.status} for ${competition.code}`);
     }
-  } finally {
-    await page.close();
+
+    const page = (await response.json()) as ApiMatch[];
+    if (!Array.isArray(page) || page.length === 0) break;
+
+    matches.push(...page);
+    if (page.length < PAGE_SIZE) break;
   }
 
-  return [...collected.values()];
+  return matches;
 }
 
-function toMatchInput(
-  match: ScrapedMatch,
-  competition: (typeof UEFA_COMPETITIONS)[number],
-): MatchInput | null {
-  const kickoff = text(match.kickoff);
-  if (!kickoff) return null;
+function toMatchInput(match: ApiMatch, competition: UefaCompetition): MatchInput | null {
+  const kickoff = match.kickOffTime?.dateTime;
+  if (!match.id || !kickoff) return null;
 
   const utcDate = new Date(kickoff);
   if (Number.isNaN(utcDate.getTime())) return null;
 
   // Knockout slots without a drawn opponent ("Winners SF-1") are not real clubs.
-  if (match.home.placeholder || match.away.placeholder) return null;
+  if (match.homeTeam?.isPlaceHolder || match.awayTeam?.isPlaceHolder) return null;
 
-  const home = {
-    international: text(match.home.international),
-    official: text(match.home.official),
-    display: text(match.home.display),
-    code: text(match.home.code),
-    country: text(match.home.country),
-    logo: text(match.home.logo),
-  };
-  const away = {
-    international: text(match.away.international),
-    official: text(match.away.official),
-    display: text(match.away.display),
-    code: text(match.away.code),
-    country: text(match.away.country),
-    logo: text(match.away.logo),
-  };
+  const read = (team: ApiTeam | undefined) => ({
+    international: team?.internationalName?.trim() || null,
+    official: text(team?.translations?.displayOfficialName),
+    display: text(team?.translations?.displayName),
+    code: text(team?.translations?.displayTeamCode) ?? team?.teamCode?.trim() ?? null,
+    country: text(team?.translations?.countryName),
+    logo: team?.logoUrl ?? team?.mediumLogoUrl ?? null,
+  });
+
+  const home = read(match.homeTeam);
+  const away = read(match.awayTeam);
 
   const homeName = home.official ?? home.international ?? home.display;
   const awayName = away.official ?? away.international ?? away.display;
@@ -193,12 +141,14 @@ function toMatchInput(
   });
   if (!homeTeam || !awayTeam) return null;
 
+  const matchday = Number(match.matchday?.sequenceNumber);
+
   return {
     externalId: match.id,
     utcDate,
     status: statusOf(match.status),
-    stage: text(match.round),
-    matchday: match.matchday,
+    stage: text(match.round?.translations?.name),
+    matchday: Number.isFinite(matchday) ? matchday : null,
     competitionCode: competition.code,
     homeTeam,
     awayTeam,
@@ -206,27 +156,22 @@ function toMatchInput(
 }
 
 async function main() {
-  const browser = await chromium.launch({ headless: true });
+  const seasonYear = currentSeasonYear();
+
   let inputs: MatchInput[] = [];
+  for (const competition of UEFA_COMPETITIONS) {
+    const fetched = await fetchCompetition(competition, seasonYear);
+    const mapped = fetched
+      .map((match) => toMatchInput(match, competition))
+      .filter((match): match is MatchInput => match !== null);
 
-  try {
-    await upsertCompetitions(UEFA_SOURCE, UEFA_COMPETITIONS);
-
-    for (const competition of UEFA_COMPETITIONS) {
-      const scraped = await scrapeCompetition(browser, competition);
-      const mapped = scraped
-        .map((match) => toMatchInput(match, competition))
-        .filter((match): match is MatchInput => match !== null);
-
-      console.log(`${competition.name}: ${scraped.length} cards seen, ${mapped.length} usable fixtures`);
-      inputs = inputs.concat(mapped);
-    }
-  } finally {
-    await browser.close();
+    console.log(`${competition.name}: ${fetched.length} returned, ${mapped.length} usable fixtures`);
+    inputs = inputs.concat(mapped);
   }
 
+  await upsertCompetitions(UEFA_SOURCE, UEFA_COMPETITIONS);
   const result = await persistMatches(UEFA_SOURCE, inputs);
-  console.log(`Stored ${result.matchCount} UEFA fixtures and ${result.teamCount} clubs.`);
+  console.log(`Stored ${result.matchCount} UEFA fixtures and ${result.teamCount} clubs (season ${seasonYear}).`);
 }
 
 main()

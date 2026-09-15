@@ -23,25 +23,25 @@ export const FOOTBALL_DATA_COMPETITIONS: CompetitionSeed[] = [
   { code: "BSA", externalId: "2013", name: "Campeonato Brasileiro Serie A", area: "Brazil", type: "LEAGUE", scope: "DOMESTIC" },
 ];
 
-/** Competitions scraped from uefa.com because the free tier does not include them. */
+/** Competitions taken from the uefa.com match API because the free tier omits them. */
 export const UEFA_COMPETITIONS = [
   {
     code: "UEL",
-    externalId: "uefaeuropaleague",
+    externalId: "14",
+    competitionId: 14,
     name: "UEFA Europa League",
     area: "Europe",
     type: "CUP" as const,
     scope: "INTERNATIONAL" as const,
-    url: "https://www.uefa.com/uefaeuropaleague/fixtures-results/",
   },
   {
     code: "UECL",
-    externalId: "uefaconferenceleague",
+    externalId: "2019",
+    competitionId: 2019,
     name: "UEFA Conference League",
     area: "Europe",
     type: "CUP" as const,
     scope: "INTERNATIONAL" as const,
-    url: "https://www.uefa.com/uefaconferenceleague/fixtures-results/",
   },
 ];
 
