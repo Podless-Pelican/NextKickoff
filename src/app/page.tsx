@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { headers } from "next/headers";
 import { clearSelections, toggleCompetition, toggleLeagueTeams, toggleTeam } from "./actions";
+import { hasAnySelection, selectedMatchFilter } from "@/lib/matches";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -75,22 +76,11 @@ export default async function Home() {
 
     const selectedCompetitionIds = competitions.filter((item) => item.isSelected).map((item) => item.id);
     const selectedTeamIds = teams.filter((item) => item.isSelected).map((item) => item.id);
-    hasSelection = selectedCompetitionIds.length > 0 || selectedTeamIds.length > 0;
+    hasSelection = hasAnySelection(selectedCompetitionIds, selectedTeamIds);
 
     if (hasSelection) {
       matches = await prisma.match.findMany({
-        where: {
-          utcDate: { gte: new Date() },
-          ...(selectedCompetitionIds.length ? { competitionId: { in: selectedCompetitionIds } } : {}),
-          ...(selectedTeamIds.length
-            ? {
-                OR: [
-                  { homeTeamId: { in: selectedTeamIds } },
-                  { awayTeamId: { in: selectedTeamIds } },
-                ],
-              }
-            : {}),
-        },
+        where: selectedMatchFilter(selectedCompetitionIds, selectedTeamIds),
         select: {
           id: true,
           utcDate: true,
@@ -267,9 +257,19 @@ export default async function Home() {
           </div>
 
           <section className="mt-10">
-            <div className="flex items-end justify-between gap-4 border-b border-[#1f2c47] pb-4">
+            <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-4">
               <h2 className="text-lg font-semibold">Upcoming matches</h2>
-              <span className="text-3xl font-semibold text-emerald-400">{matches.length}</span>
+              <div className="flex items-center gap-4">
+                {matches.length ? (
+                  <a
+                    href="/api/calendar"
+                    className="rounded-full border border-[#1f2c47] bg-[#111a2e] px-3 py-1.5 text-sm text-slate-300 transition hover:border-slate-500"
+                  >
+                    Add to calendar
+                  </a>
+                ) : null}
+                <span className="text-3xl font-semibold text-emerald-400">{matches.length}</span>
+              </div>
             </div>
 
             {!hasSelection ? (
