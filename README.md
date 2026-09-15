@@ -1,40 +1,41 @@
 # Next Kickoff
 
 Pick the clubs you follow and the competitions you care about, then see only the matches where
-those clubs play in those competitions.
+those clubs play in those competitions. The selected fixtures can be downloaded as a calendar file.
+
+The site is a static export: fixtures are read from the database at build time, and your
+selections are kept in the browser.
 
 ## Data sources
 
-| Source | Competitions | How it runs |
+| Source | Competitions | Command |
 | --- | --- | --- |
-| football-data.org (free tier) | Champions League, World Cup, European Championship, Premier League, Championship, Bundesliga, Eredivisie, Ligue 1, Serie A, La Liga, Primeira Liga, Brasileirão | `GET /api/cron/sync` (Vercel Cron, hourly) or `npm run sync:football` |
-| uefa.com scraper | Europa League, Conference League | `npm run scrape:uefa` (GitHub Actions, daily) |
+| football-data.org (free tier) | Champions League, World Cup, European Championship, Premier League, Championship, Bundesliga, Eredivisie, Ligue 1, Serie A, La Liga, Primeira Liga, Brasileirão | `npm run sync:football` |
+| uefa.com match API | Europa League, Conference League | `npm run scrape:uefa` |
 
-Europa League and Conference League are not part of the football-data.org free tier, which is why
-they are scraped from the official UEFA fixture pages instead.
+Europa League and Conference League are not part of the football-data.org free tier, so they come
+from the public match API that uefa.com itself uses.
 
-Clubs are stored once per slug, so the same club coming from both sources stays a single row.
+Clubs are matched across sources by name slug, then by team code combined with country, so the
+same club arriving from both feeds stays a single row.
 
 ## Local setup
 
-1. `cp .env.example .env` and fill in `DATABASE_URL`, `FOOTBALL_DATA_API_TOKEN` and `CRON_SECRET`.
-2. `npx prisma migrate dev --name init` to create the tables.
-3. `npm run sync:football` to import competitions, clubs and fixtures.
-4. `npx playwright install chromium` once, then `npm run scrape:uefa` for the UEFA competitions.
-5. `npm run dev` and open http://localhost:3000.
+1. `cp .env.example .env` and fill in `DATABASE_URL` and `FOOTBALL_DATA_API_TOKEN`.
+2. `npx prisma migrate dev` to create the tables.
+3. `npm run sync:football` then `npm run scrape:uefa` to import competitions, clubs and fixtures.
+4. `npm run dev` and open http://localhost:3000.
+
+Useful checks: `npm run db:stats` and `npm run db:debug-filter`.
 
 ## Deployment
 
-Deploy to Vercel and add `DATABASE_URL`, `FOOTBALL_DATA_API_TOKEN`, `FIXTURE_LOOKAHEAD_DAYS`,
-`CRON_SECRET` and `DISPLAY_TIME_ZONE` as environment variables. `vercel.json` calls
-`/api/cron/sync` every hour.
+Published to GitHub Pages by the **Deploy to GitHub Pages** workflow, triggered manually so the
+site is rebuilt when you choose.
 
-The scraper runs in GitHub Actions because it needs a browser. Add `DATABASE_URL` and
-`FOOTBALL_DATA_API_TOKEN` as repository secrets so both workflows can reach the same database.
+1. Settings → Pages → set Source to **GitHub Actions**.
+2. Add `DATABASE_URL` as a repository secret; the build reads it and it never reaches the browser.
+3. Run the workflow after an import to publish the new fixtures.
 
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`basePath` is supplied by `actions/configure-pages`, so the project subpath is handled
+automatically. Other static hosts serve from the root and need no extra configuration.
