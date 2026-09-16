@@ -162,7 +162,7 @@ export default function Dashboard({
         : current.teams.filter((id) => !ids.includes(id)),
     }));
 
-  const download = () => {
+  const downloadIcs = () => {
     const events: CalendarEvent[] = visible.map((match) => {
       const start = new Date(match.utcDate);
       return {
@@ -183,6 +183,11 @@ export default function Dashboard({
     link.download = "next-kickoff.ics";
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const addAllToGoogleCalendar = () => {
+    visible.forEach((match) => window.open(googleCalendarUrl(match), "_blank", "noopener,noreferrer"));
+    setCalendarMenuOpen(false);
   };
 
   const googleCalendarUrl = (match: MatchView) => {
@@ -237,28 +242,33 @@ export default function Dashboard({
                 <button
                   type="button"
                   role="menuitem"
+                  onClick={addAllToGoogleCalendar}
+                  className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-[#1f2c47]"
+                >
+                  Add all matches directly to Google Calendar
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
                   onClick={() => {
-                    download();
+                    downloadIcs();
                     setCalendarMenuOpen(false);
                   }}
                   className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-[#1f2c47]"
                 >
-                  Download all for Apple Calendar
+                  Add all matches directly to Apple Calendar
                 </button>
-                <p className="px-3 pb-1 pt-3 text-xs text-slate-500">Add individually to Google Calendar</p>
-                {visible.map((match) => (
-                  <a
-                    key={match.id}
-                    href={googleCalendarUrl(match)}
-                    target="_blank"
-                    rel="noreferrer"
-                    role="menuitem"
-                    onClick={() => setCalendarMenuOpen(false)}
-                    className="block truncate rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-[#1f2c47]"
-                  >
-                    {match.homeName} vs {match.awayName}
-                  </a>
-                ))}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    downloadIcs();
+                    setCalendarMenuOpen(false);
+                  }}
+                  className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-300 hover:bg-[#1f2c47]"
+                >
+                  Download .ics file
+                </button>
               </div>
             ) : null}
           </div>
