@@ -203,7 +203,7 @@ export default function Dashboard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
         <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          Select the clubs and competitions you follow, then add the games you want to your personal calendar.
+          Select the clubs and competitions you want to follow. Then, add their upcoming matches to your calendar.
         </p>
         {visible.length ? (
           <button
