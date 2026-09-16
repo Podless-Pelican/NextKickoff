@@ -70,6 +70,7 @@ export default function Dashboard({
 }) {
   const [selection, setSelection] = useState<Selection>(EMPTY);
   const [expandedLeagues, setExpandedLeagues] = useState<number[]>([]);
+  const [calendarMenuOpen, setCalendarMenuOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   // Selections live in the browser, so the first paint must match the prerendered HTML.
@@ -184,6 +185,18 @@ export default function Dashboard({
     URL.revokeObjectURL(url);
   };
 
+  const googleCalendarUrl = (match: MatchView) => {
+    const start = new Date(match.utcDate);
+    const end = new Date(start.getTime() + MATCH_MINUTES * 60_000);
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: `${match.homeName} vs ${match.awayName}`,
+      dates: `${start.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}/${end.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`,
+      details: match.stage ? `${match.competitionName} · ${match.stage}` : match.competitionName,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  };
+
   return (
     <main className="mx-auto max-w-7xl px-6 pb-20 pt-10">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-6">
@@ -206,13 +219,49 @@ export default function Dashboard({
           Select the clubs and competitions you want to follow. Then, add their upcoming matches to your calendar.
         </p>
         {visible.length ? (
-          <button
-            type="button"
-            onClick={download}
-            className="cursor-pointer rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-[#07111f] shadow-lg shadow-emerald-400/20 transition hover:bg-emerald-300"
-          >
-            Add {visible.length} {visible.length === 1 ? "match" : "matches"} to calendar
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              aria-expanded={calendarMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setCalendarMenuOpen((open) => !open)}
+              className="cursor-pointer rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-[#07111f] shadow-lg shadow-emerald-400/20 transition hover:bg-emerald-300"
+            >
+              Add {visible.length} {visible.length === 1 ? "match" : "matches"} to calendar
+            </button>
+            {calendarMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-10 mt-2 min-w-64 rounded-xl border border-[#1f2c47] bg-[#111a2e] p-2 shadow-xl"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    download();
+                    setCalendarMenuOpen(false);
+                  }}
+                  className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-[#1f2c47]"
+                >
+                  Download all for Apple Calendar
+                </button>
+                <p className="px-3 pb-1 pt-3 text-xs text-slate-500">Add individually to Google Calendar</p>
+                {visible.map((match) => (
+                  <a
+                    key={match.id}
+                    href={googleCalendarUrl(match)}
+                    target="_blank"
+                    rel="noreferrer"
+                    role="menuitem"
+                    onClick={() => setCalendarMenuOpen(false)}
+                    className="block truncate rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-[#1f2c47]"
+                  >
+                    {match.homeName} vs {match.awayName}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
