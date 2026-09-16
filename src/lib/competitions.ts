@@ -10,7 +10,6 @@ export type CompetitionSeed = {
 /** The 12 competitions included in the football-data.org free tier. */
 export const FOOTBALL_DATA_COMPETITIONS: CompetitionSeed[] = [
   { code: "CL", externalId: "2001", name: "UEFA Champions League", area: "Europe", type: "CUP", scope: "INTERNATIONAL" },
-  { code: "WC", externalId: "2000", name: "FIFA World Cup", area: "World", type: "CUP", scope: "INTERNATIONAL" },
   { code: "EC", externalId: "2018", name: "European Championship", area: "Europe", type: "CUP", scope: "INTERNATIONAL" },
   { code: "PL", externalId: "2021", name: "Premier League", area: "England", type: "LEAGUE", scope: "DOMESTIC" },
   { code: "ELC", externalId: "2016", name: "Championship", area: "England", type: "LEAGUE", scope: "DOMESTIC" },

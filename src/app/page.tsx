@@ -8,6 +8,7 @@ export default async function Home() {
   const generatedAt = new Date();
 
   const competitions = await prisma.competition.findMany({
+    where: { code: { not: "WC" } },
     select: { id: true, name: true, area: true, scope: true },
     orderBy: [{ scope: "asc" }, { area: "asc" }, { name: "asc" }],
   });

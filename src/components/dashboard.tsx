@@ -69,6 +69,7 @@ export default function Dashboard({
   generatedAt: string;
 }) {
   const [selection, setSelection] = useState<Selection>(EMPTY);
+  const [expandedLeagues, setExpandedLeagues] = useState<number[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
   // Selections live in the browser, so the first paint must match the prerendered HTML.
@@ -123,10 +124,26 @@ export default function Dashboard({
     [competitions, teams],
   );
 
-  const otherTeams = useMemo(() => {
-    const grouped = new Set(leagueGroups.flatMap((group) => group.teams.map((team) => team.id)));
-    return teams.filter((team) => !grouped.has(team.id));
-  }, [leagueGroups, teams]);
+  const availableCompetitions = useMemo(() => {
+    if (selectedTeams.size === 0) return competitions;
+
+    const competitionIds = new Set(
+      matches
+        .filter((match) => selectedTeams.has(match.homeTeamId) || selectedTeams.has(match.awayTeamId))
+        .map((match) => match.competitionId),
+    );
+    return competitions.filter((competition) => competitionIds.has(competition.id));
+  }, [competitions, matches, selectedTeams]);
+
+  useEffect(() => {
+    if (selectedTeams.size === 0) return;
+
+    const availableIds = new Set(availableCompetitions.map((competition) => competition.id));
+    setSelection((current) => {
+      const competitions = current.competitions.filter((id) => availableIds.has(id));
+      return competitions.length === current.competitions.length ? current : { ...current, competitions };
+    });
+  }, [availableCompetitions, selectedTeams]);
 
   const toggle = (key: keyof Selection, id: number) =>
     setSelection((current) => ({
@@ -198,54 +215,43 @@ export default function Dashboard({
               {leagueGroups.map((group) => {
                 const ids = group.teams.map((team) => team.id);
                 const allSelected = ids.every((id) => selectedTeams.has(id));
+                const expanded = expandedLeagues.includes(group.competition.id);
+                const teamListId = `league-${group.competition.id}-teams`;
                 return (
                   <div key={group.competition.id}>
                     <div className="flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold text-slate-200">
-                        {group.competition.area}
-                        <span className="ml-2 font-normal text-slate-500">{group.competition.name}</span>
-                      </h3>
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-controls={teamListId}
+                        onClick={() =>
+                          setExpandedLeagues((current) =>
+                            expanded
+                              ? current.filter((id) => id !== group.competition.id)
+                              : [...current, group.competition.id],
+                          )
+                        }
+                        className="flex min-w-0 cursor-pointer items-center gap-2 text-left text-sm font-semibold text-slate-200 hover:text-white"
+                      >
+                        <span aria-hidden="true" className="w-3 text-xs text-slate-500">
+                          {expanded ? "-" : "+"}
+                        </span>
+                        <span>
+                          {group.competition.area}
+                          <span className="ml-2 font-normal text-slate-500">{group.competition.name}</span>
+                        </span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => setLeague(ids, !allSelected)}
-                        className="cursor-pointer text-xs text-emerald-400 hover:underline"
+                        className="shrink-0 cursor-pointer text-xs text-emerald-400 hover:underline"
                       >
                         {allSelected ? "Clear all" : "Select all"}
                       </button>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {group.teams.map((team) => (
-                        <button
-                          key={team.id}
-                          type="button"
-                          onClick={() => toggle("teams", team.id)}
-                          className={chip(selectedTeams.has(team.id))}
-                        >
-                          {team.crest ? (
-                            <Image
-                              src={team.crest}
-                              alt=""
-                              width={16}
-                              height={16}
-                              className="h-4 w-4 object-contain"
-                            />
-                          ) : null}
-                          {team.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {otherTeams.length > 0 ? (
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-200">
-                    Other clubs
-                    <span className="ml-2 font-normal text-slate-500">no league imported yet</span>
-                  </h3>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {otherTeams.map((team) => (
+                    {expanded ? (
+                      <div id={teamListId} className="mt-3 flex flex-wrap gap-2">
+                        {group.teams.map((team) => (
                       <button
                         key={team.id}
                         type="button"
@@ -263,10 +269,12 @@ export default function Dashboard({
                         ) : null}
                         {team.name}
                       </button>
-                    ))}
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
+                );
+              })}
             </div>
           )}
         </section>
@@ -279,9 +287,11 @@ export default function Dashboard({
 
           {competitions.length === 0 ? (
             <p className="mt-4 text-sm text-slate-400">Run an import to load competitions.</p>
+          ) : availableCompetitions.length === 0 ? (
+            <p className="mt-4 text-sm text-slate-400">No competitions found for the selected clubs.</p>
           ) : (
             <div className="mt-5 flex flex-wrap gap-2">
-              {competitions.map((competition) => (
+              {availableCompetitions.map((competition) => (
                 <button
                   key={competition.id}
                   type="button"
