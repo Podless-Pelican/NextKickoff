@@ -188,18 +188,33 @@ export default function Dashboard({
     <main className="mx-auto max-w-7xl px-6 pb-20 pt-10">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-400">Fixture watch</p>
           <h1 className="mt-2 text-4xl font-semibold tracking-tight">Next Kickoff</h1>
+          <p className="mt-2 text-base text-slate-400">Create your personal football calendar</p>
         </div>
         <div className="text-right text-sm text-slate-400">
           {syncRuns.map((run) => (
             <p key={run.source}>
-              {run.source}: {formatter.format(new Date(run.completedAt))}
+              {run.source === "football-data" ? "Domestic leagues updated" : "UEFA leagues updated"}: {formatter.format(new Date(run.completedAt))}
             </p>
           ))}
-          <p className="text-xs text-slate-500">site built {formatter.format(new Date(generatedAt))}</p>
+          <p className="text-xs text-slate-500">Site deployed: {formatter.format(new Date(generatedAt))}</p>
         </div>
       </header>
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
+        <p className="max-w-2xl text-sm leading-6 text-slate-300">
+          Select the clubs and competitions you follow, then add the games you want to your personal calendar.
+        </p>
+        {visible.length ? (
+          <button
+            type="button"
+            onClick={download}
+            className="cursor-pointer rounded-full bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-[#07111f] shadow-lg shadow-emerald-400/20 transition hover:bg-emerald-300"
+          >
+            Add {visible.length} {visible.length === 1 ? "match" : "matches"} to calendar
+          </button>
+        ) : null}
+      </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <section className="rounded-2xl border border-[#1f2c47] bg-[#0f172a]/60 p-5">
@@ -318,18 +333,7 @@ export default function Dashboard({
       <section className="mt-10">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-4">
           <h2 className="text-lg font-semibold">Upcoming matches</h2>
-          <div className="flex items-center gap-4">
-            {visible.length ? (
-              <button
-                type="button"
-                onClick={download}
-                className="cursor-pointer rounded-full border border-[#1f2c47] bg-[#111a2e] px-3 py-1.5 text-sm text-slate-300 transition hover:border-slate-500"
-              >
-                Add to calendar
-              </button>
-            ) : null}
-            <span className="text-3xl font-semibold text-emerald-400">{visible.length}</span>
-          </div>
+          <span className="text-3xl font-semibold text-emerald-400">{visible.length}</span>
         </div>
 
         {!hasSelection ? (
@@ -380,7 +384,6 @@ export default function Dashboard({
                 </div>
                 <p className="text-sm text-slate-400">
                   {match.competitionName}
-                  {match.stage ? ` · ${match.stage}` : ""}
                 </p>
               </li>
             ))}
