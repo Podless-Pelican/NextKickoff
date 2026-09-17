@@ -74,15 +74,15 @@ function chip(selected: boolean) {
   ].join(" ");
 }
 
-const countryFlags: Record<string, string> = {
-  England: "🇬🇧",
-  Germany: "🇩🇪",
-  Netherlands: "🇳🇱",
-  France: "🇫🇷",
-  Italy: "🇮🇹",
-  Spain: "🇪🇸",
-  Portugal: "🇵🇹",
-  Brazil: "🇧🇷",
+const countryFlagCodes: Record<string, string> = {
+  England: "gb-eng",
+  Germany: "de",
+  Netherlands: "nl",
+  France: "fr",
+  Italy: "it",
+  Spain: "es",
+  Portugal: "pt",
+  Brazil: "br",
 };
 
 export default function Dashboard({
@@ -438,9 +438,14 @@ export default function Dashboard({
                         <span>
                           {group.competition.name}
                           <span className="ml-2 font-normal text-slate-500">
-                            <span aria-hidden="true" className="mr-1.5">
-                              {countryFlags[group.competition.area] ?? "🌐"}
-                            </span>
+                            <span
+                              role="img"
+                              aria-label={`${group.competition.area} flag`}
+                              className="mr-1.5 inline-block h-3 w-5 rounded-[1px] bg-cover bg-center bg-no-repeat align-[-1px]"
+                              style={{
+                                backgroundImage: `url(https://flagcdn.com/20x15/${countryFlagCodes[group.competition.area] ?? "un"}.png)`,
+                              }}
+                            />
                             {group.competition.area}
                           </span>
                         </span>
