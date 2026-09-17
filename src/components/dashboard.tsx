@@ -352,7 +352,7 @@ export default function Dashboard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
         <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          First select the clubs, or full domestic leagues, you want to follow. Then, choose which league's matches you want to see. Finally, add them to your calendar.
+          First select the clubs, or full domestic leagues, you want to follow. Then, choose which leagues&apos; matches you want to see. Finally, add them to your calendar.
         </p>
         {visible.length ? (
           <div className="relative">
