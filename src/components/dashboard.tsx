@@ -323,11 +323,12 @@ export default function Dashboard({
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-6">
         <div>
           <h1
-            aria-label="Next Kickoff"
+            aria-label="Next Kickoff Calendar"
             className="mt-2 text-4xl font-semibold tracking-tight"
           >
             <span aria-hidden="true">
-              Next Kick<span className="kickoff-mark mx-1 align-[0.04em]" />ff
+              Next Kick<span className="kickoff-football mx-1 align-[0.04em]" />ff{" "}
+              <span className="kickoff-calendar mx-1 align-[0.04em]" />alendar
             </span>
           </h1>
           <p className="mt-2 text-base text-slate-400">Create your personal football calendar</p>
