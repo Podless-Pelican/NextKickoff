@@ -74,6 +74,17 @@ function chip(selected: boolean) {
   ].join(" ");
 }
 
+const countryFlags: Record<string, string> = {
+  England: "🇬🇧",
+  Germany: "🇩🇪",
+  Netherlands: "🇳🇱",
+  France: "🇫🇷",
+  Italy: "🇮🇹",
+  Spain: "🇪🇸",
+  Portugal: "🇵🇹",
+  Brazil: "🇧🇷",
+};
+
 export default function Dashboard({
   competitions,
   teams,
@@ -425,8 +436,13 @@ export default function Dashboard({
                           {expanded ? "-" : "+"}
                         </span>
                         <span>
-                          {group.competition.area}
-                          <span className="ml-2 font-normal text-slate-500">{group.competition.name}</span>
+                          {group.competition.name}
+                          <span className="ml-2 font-normal text-slate-500">
+                            <span aria-hidden="true" className="mr-1.5">
+                              {countryFlags[group.competition.area] ?? "🌐"}
+                            </span>
+                            {group.competition.area}
+                          </span>
                         </span>
                       </button>
                       <button
