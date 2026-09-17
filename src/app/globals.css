@@ -5,3 +5,37 @@ body {
   background-color: #0b1120;
   color: #e9eefb;
 }
+
+.kickoff-mark {
+  position: relative;
+  display: inline-block;
+  width: 0.82em;
+  height: 0.82em;
+  border: 0.09em solid #34d399;
+  border-radius: 999px;
+  background: #111a2e;
+  box-shadow: inset 0 0 0 0.04em #0b1120;
+  vertical-align: middle;
+}
+
+.kickoff-mark::before,
+.kickoff-mark::after {
+  position: absolute;
+  left: 50%;
+  bottom: 50%;
+  width: 0.07em;
+  border-radius: 999px;
+  background: #e9eefb;
+  content: "";
+  transform-origin: bottom center;
+}
+
+.kickoff-mark::before {
+  height: 0.29em;
+  transform: translateX(-50%) rotate(25deg);
+}
+
+.kickoff-mark::after {
+  height: 0.22em;
+  transform: translateX(-50%) rotate(145deg);
+}
