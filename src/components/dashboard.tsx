@@ -327,18 +327,17 @@ export default function Dashboard({
             className="mt-2"
           >
             <span className="sr-only">Next Kickoff Calendar</span>
-            <span aria-hidden="true" className="relative block h-16 w-full max-w-[560px] overflow-hidden">
+            <span aria-hidden="true" className="relative block h-20 w-full max-w-[680px] overflow-hidden">
               <Image
                 src="/logo.png"
                 alt=""
                 fill
                 priority
-                sizes="(max-width: 640px) 100vw, 560px"
+                sizes="(max-width: 640px) 100vw, 680px"
                 className="object-cover object-[center_37%]"
               />
             </span>
           </h1>
-          <p className="mt-2 text-base text-slate-400">Create your personal football calendar</p>
         </div>
         <div className="text-right text-sm text-slate-400">
           {syncRuns.map((run) => (
@@ -352,7 +351,7 @@ export default function Dashboard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
         <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          Select the clubs and competitions you want to follow. Then, add their upcoming matches to your calendar.
+          First select all the clubs you are interested in. Then choose the leagues for those clubs whose matches you want to see.
         </p>
         {visible.length ? (
           <div className="relative">
