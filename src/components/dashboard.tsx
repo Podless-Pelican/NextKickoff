@@ -334,7 +334,7 @@ export default function Dashboard({
                 fill
                 priority
                 sizes="(max-width: 640px) 100vw, 680px"
-                className="object-cover object-[center_37%]"
+                className="object-cover object-[center_25%]"
               />
             </span>
           </h1>
@@ -351,7 +351,7 @@ export default function Dashboard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
         <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          First select all the clubs you are interested in. Then choose the leagues for those clubs whose matches you want to see.
+          First select the clubs, or full domestic leagues, you want to follow. Then, choose which leagues' matches of these clubs you want to see. Finally, add them to your calendar.
         </p>
         {visible.length ? (
           <div className="relative">
