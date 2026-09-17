@@ -7,6 +7,27 @@ import { filterMatches, hasAnySelection } from "@/lib/matches";
 
 const STORAGE_KEY = "next-kickoff-selection";
 const MATCH_MINUTES = 115;
+const GOOGLE_CALENDAR_NAME = "Football";
+
+type GoogleTokenClient = {
+  requestAccessToken: (options?: { prompt?: string }) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (options: {
+            client_id: string;
+            scope: string;
+            callback: (response: { access_token?: string; error?: string }) => void;
+          }) => GoogleTokenClient;
+        };
+      };
+    };
+  }
+}
 
 export type CompetitionView = {
   id: number;
@@ -71,6 +92,8 @@ export default function Dashboard({
   const [selection, setSelection] = useState<Selection>(EMPTY);
   const [expandedLeagues, setExpandedLeagues] = useState<number[]>([]);
   const [calendarMenuOpen, setCalendarMenuOpen] = useState(false);
+  const [googleSyncing, setGoogleSyncing] = useState(false);
+  const [googleSyncMessage, setGoogleSyncMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // Selections live in the browser, so the first paint must match the prerendered HTML.
@@ -185,21 +208,103 @@ export default function Dashboard({
     URL.revokeObjectURL(url);
   };
 
-  const addAllToGoogleCalendar = () => {
-    visible.forEach((match) => window.open(googleCalendarUrl(match), "_blank", "noopener,noreferrer"));
-    setCalendarMenuOpen(false);
-  };
+  const loadGoogleIdentityServices = () =>
+    new Promise<void>((resolve, reject) => {
+      if (window.google) {
+        resolve();
+        return;
+      }
 
-  const googleCalendarUrl = (match: MatchView) => {
-    const start = new Date(match.utcDate);
-    const end = new Date(start.getTime() + MATCH_MINUTES * 60_000);
-    const params = new URLSearchParams({
-      action: "TEMPLATE",
-      text: `${match.homeName} vs ${match.awayName}`,
-      dates: `${start.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}/${end.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`,
-      details: match.stage ? `${match.competitionName} · ${match.stage}` : match.competitionName,
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Google sign-in could not be loaded."));
+      document.head.appendChild(script);
     });
-    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+
+  const requestGoogleAccessToken = () =>
+    new Promise<string>((resolve, reject) => {
+      const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+      if (!clientId) {
+        reject(new Error("Google Calendar sync is not configured yet."));
+        return;
+      }
+
+      const client = window.google?.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: "https://www.googleapis.com/auth/calendar",
+        callback: (response) => {
+          if (response.access_token) resolve(response.access_token);
+          else reject(new Error(response.error ?? "Google authorization was cancelled."));
+        },
+      });
+
+      if (!client) reject(new Error("Google sign-in could not be initialized."));
+      else client.requestAccessToken({ prompt: "consent" });
+    });
+
+  const syncWithGoogleCalendar = async () => {
+    setGoogleSyncing(true);
+    setGoogleSyncMessage(null);
+
+    try {
+      await loadGoogleIdentityServices();
+      const token = await requestGoogleAccessToken();
+      const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      const calendarsResponse = await fetch(
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList?showHidden=false",
+        { headers },
+      );
+      if (!calendarsResponse.ok) throw new Error("Google calendars could not be loaded.");
+
+      const calendars = (await calendarsResponse.json()) as {
+        items?: { id: string; summary?: string }[];
+      };
+      let calendar = calendars.items?.find((item) => item.summary === GOOGLE_CALENDAR_NAME);
+
+      if (!calendar) {
+        const createResponse = await fetch("https://www.googleapis.com/calendar/v3/calendars", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ summary: GOOGLE_CALENDAR_NAME }),
+        });
+        if (!createResponse.ok) throw new Error("The Football calendar could not be created.");
+        calendar = (await createResponse.json()) as { id: string; summary?: string };
+      }
+
+      if (!calendar?.id) throw new Error("The Football calendar has no usable ID.");
+
+      await Promise.all(
+        visible.map(async (match) => {
+          const start = new Date(match.utcDate);
+          const end = new Date(start.getTime() + MATCH_MINUTES * 60_000);
+          const eventId = `nk${match.id}`;
+          const response = await fetch(
+            `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendar.id)}/events/${eventId}`,
+            {
+              method: "PUT",
+              headers,
+              body: JSON.stringify({
+                id: eventId,
+                summary: `${match.homeName} vs ${match.awayName}`,
+                description: match.stage ? `${match.competitionName} · ${match.stage}` : match.competitionName,
+                start: { dateTime: start.toISOString() },
+                end: { dateTime: end.toISOString() },
+              }),
+            },
+          );
+          if (!response.ok) throw new Error("One or more matches could not be synced.");
+        }),
+      );
+
+      setGoogleSyncMessage(`${visible.length} ${visible.length === 1 ? "match" : "matches"} synced to ${GOOGLE_CALENDAR_NAME}.`);
+    } catch (error) {
+      setGoogleSyncMessage(error instanceof Error ? error.message : "Google Calendar sync failed.");
+    } finally {
+      setGoogleSyncing(false);
+      setCalendarMenuOpen(false);
+    }
   };
 
   return (
@@ -242,10 +347,11 @@ export default function Dashboard({
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={addAllToGoogleCalendar}
+                  disabled={googleSyncing}
+                  onClick={() => void syncWithGoogleCalendar()}
                   className="block w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm text-slate-200 hover:bg-[#1f2c47]"
                 >
-                  Add all matches directly to Google Calendar
+                  {googleSyncing ? "Syncing with Google Calendar..." : "Sync all with Google Calendar"}
                 </button>
                 <button
                   type="button"
@@ -274,6 +380,7 @@ export default function Dashboard({
           </div>
         ) : null}
       </div>
+      {googleSyncMessage ? <p className="mt-2 text-right text-sm text-slate-400" aria-live="polite">{googleSyncMessage}</p> : null}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <section className="rounded-2xl border border-[#1f2c47] bg-[#0f172a]/60 p-5">
