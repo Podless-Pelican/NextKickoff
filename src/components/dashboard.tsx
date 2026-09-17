@@ -8,6 +8,7 @@ import { filterMatches, hasAnySelection } from "@/lib/matches";
 const STORAGE_KEY = "next-kickoff-selection";
 const MATCH_MINUTES = 115;
 const GOOGLE_CALENDAR_NAME = "Football";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 type GoogleTokenClient = {
   requestAccessToken: (options?: { prompt?: string }) => void;
@@ -329,7 +330,7 @@ export default function Dashboard({
             <span className="sr-only">Next Kickoff Calendar</span>
             <span aria-hidden="true" className="relative block h-20 w-full max-w-[680px] overflow-hidden">
               <Image
-                src="/logo.png"
+                src={`${BASE_PATH}/logo.png`}
                 alt=""
                 fill
                 priority
@@ -351,7 +352,7 @@ export default function Dashboard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-5 py-4">
         <p className="max-w-2xl text-sm leading-6 text-slate-300">
-          First select the clubs, or full domestic leagues, you want to follow. Then, choose which leagues' matches of these clubs you want to see. Finally, add them to your calendar.
+          First select the clubs, or full domestic leagues, you want to follow. Then, choose which league's matches you want to see. Finally, add them to your calendar.
         </p>
         {visible.length ? (
           <div className="relative">
