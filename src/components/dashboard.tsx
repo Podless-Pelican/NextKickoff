@@ -322,7 +322,7 @@ export default function Dashboard({
   return (
     <main className="mx-auto max-w-7xl px-6 pb-20 pt-10">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-[#1f2c47] pb-6">
-        <div>
+        <div className="min-w-0 flex-1">
           <h1
             aria-label="Next Kickoff Calendar"
             className="mt-2"
@@ -335,7 +335,7 @@ export default function Dashboard({
                 fill
                 priority
                 sizes="(max-width: 640px) 100vw, 680px"
-                className="object-cover object-[center_25%]"
+                className="object-cover object-center"
               />
             </span>
           </h1>
