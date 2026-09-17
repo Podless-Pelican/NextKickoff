@@ -28,7 +28,9 @@ same club arriving from both feeds stays a single row.
 
 To enable **Sync all with Google Calendar**, create a Google OAuth 2.0 Web application client,
 add the local and deployed site URLs as authorized JavaScript origins, enable the Google Calendar
-API, and set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` in `.env`. The app creates or reuses a calendar named
+API, and set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` in `.env`. For GitHub Pages, add a repository secret
+with the exact name `NEXT_PUBLIC_GOOGLE_CLIENT_ID`; the deploy workflow injects it during the build.
+The app creates or reuses a calendar named
 `Football` and updates the selected matches there. The client ID is public; never put a client secret
 in the browser or repository.
 

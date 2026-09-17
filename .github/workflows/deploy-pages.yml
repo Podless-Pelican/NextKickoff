@@ -29,6 +29,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DISPLAY_TIME_ZONE: Europe/Amsterdam
           NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: ./out
